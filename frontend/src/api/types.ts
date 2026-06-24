@@ -7,13 +7,33 @@ export interface Raffle {
   id: string;
   name: string;
   status: RaffleStatus;
+  // Legal ticket-face metadata (printed on tickets; all optional).
+  ticket_price: string | null;
+  prizes: string | null;
+  drawing_datetime: string | null;
+  drawing_location: string | null;
   drawn_at: string | null;
   created_at: string;
+}
+
+/** Fields the create-raffle form collects (legal ticket-face metadata). */
+export interface RaffleInput {
+  name: string;
+  ticket_price?: string;
+  prizes?: string;
+  drawing_datetime?: string; // ISO string
+  drawing_location?: string;
 }
 
 export interface RaffleDetail extends Raffle {
   entry_count: number;
   ticket_count: number;
+}
+
+export interface RaffleLogo {
+  id: string;
+  name: string | null;
+  position: number;
 }
 
 export interface Ticket {

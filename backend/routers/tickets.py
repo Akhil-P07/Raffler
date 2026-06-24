@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from database import Organization, Ticket, get_db
+from database import Organization, RaffleLogo, Ticket, get_db
 from middleware.ownership import get_owned_raffle, get_owned_ticket, require_org
 from schemas import (
     GenerateTicketsRequest,
@@ -17,7 +17,7 @@ from schemas import (
     TicketResponse,
 )
 from services.limits import enforce_ticket_limit
-from services.qr import print_sheet_png, single_ticket_png
+from services.qr import TicketSheetInfo, print_sheet_png, single_ticket_png
 
 router = APIRouter(tags=["tickets"])
 
@@ -97,9 +97,22 @@ def ticket_sheet(
         .where(Ticket.raffle_id == raffle.id)
         .order_by(Ticket.ticket_number)
     ).all()
-    png = print_sheet_png(
-        [(t.ticket_number, t.token) for t in tickets], raffle.name
+    logos = db.scalars(
+        select(RaffleLogo)
+        .where(RaffleLogo.raffle_id == raffle.id)
+        .order_by(RaffleLogo.position)
+    ).all()
+    info = TicketSheetInfo(
+        org_name=org.name,
+        raffle_name=raffle.name,
+        goc_id=org.goc_id,
+        prizes=raffle.prizes,
+        ticket_price=raffle.ticket_price,
+        drawing_datetime=raffle.drawing_datetime,
+        drawing_location=raffle.drawing_location,
+        logos=[logo.image for logo in logos],
     )
+    png = print_sheet_png([(t.ticket_number, t.token) for t in tickets], info)
     return Response(
         content=png,
         media_type="image/png",

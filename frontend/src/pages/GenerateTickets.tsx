@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import LogoManager from "../components/LogoManager";
 import TicketCard from "../components/TicketCard";
 import {
   downloadTicketSheet,
@@ -167,6 +168,10 @@ export default function GenerateTickets() {
           )}
           {error && <p className="w-full text-sm text-red-600">{error}</p>}
         </form>
+
+        <div className="mb-6">
+          <LogoManager raffleId={raffleId} />
+        </div>
 
         <p className="mb-4 text-sm font-medium text-gray-600">
           {tickets.length} ticket{tickets.length === 1 ? "" : "s"} generated

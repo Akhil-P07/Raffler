@@ -78,7 +78,9 @@ def create_org(
     _admin: str = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> OrgCreatedResponse:
-    org = Organization(name=body.name, plan=body.plan, api_key="pending")
+    org = Organization(
+        name=body.name, plan=body.plan, goc_id=body.goc_id, api_key="pending"
+    )
     db.add(org)
     db.flush()  # assigns org.id so we can embed it in the key
 
@@ -88,7 +90,11 @@ def create_org(
     db.refresh(org)
 
     return OrgCreatedResponse(
-        id=org.id, name=org.name, plan=org.plan, api_key=api_key
+        id=org.id,
+        name=org.name,
+        plan=org.plan,
+        goc_id=org.goc_id,
+        api_key=api_key,
     )
 
 

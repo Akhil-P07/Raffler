@@ -67,18 +67,22 @@ Admin/platform endpoints (`/orgs*`) require a JWT from `POST /auth/login`.
 | Method | Path | Notes |
 |--------|------|-------|
 | POST | `/auth/login` | Admin JWT (15 min). Rate-limited 10/min. |
-| POST | `/orgs` | Create org + return API key once (JWT). |
+| POST | `/orgs` | Create org + return API key once (JWT). Optional `goc_id`. |
 | POST | `/orgs/{org_id}/rotate-key` | Rotate API key (JWT). |
-| POST | `/raffles` | Create raffle (enforces plan limit → 403). |
+| POST | `/raffles` | Create raffle (enforces plan limit → 403). Optional ticket-face metadata. |
 | GET | `/raffles` | List active raffles for your org. |
 | GET | `/raffles/{id}` | Detail + entry/ticket counts. |
-| PATCH | `/raffles/{id}` | Update name/status (409 if drawn). |
+| PATCH | `/raffles/{id}` | Update name/status/metadata (409 if drawn). |
 | DELETE | `/raffles/{id}` | Soft delete (sets `deleted_at`). |
 | POST | `/raffles/{id}/tickets` | Generate N tickets + tokens (plan limit → 403). |
 | GET | `/raffles/{id}/tickets` | List tickets. |
-| GET | `/raffles/{id}/tickets/sheet` | PNG print sheet. |
+| GET | `/raffles/{id}/tickets/sheet` | PNG print sheet (compliant ticket faces). |
 | GET | `/tickets/{ticket_id}/qr` | Single-ticket QR PNG (ownership-checked). |
-| GET | `/register/{token}` | **Public.** Token info (number + raffle name). |
+| POST | `/raffles/{id}/logos` | Upload a logo (multipart `file`, optional `name`). Max 6, ≤2 MB. |
+| GET | `/raffles/{id}/logos` | List logo metadata (`id`, `name`, `position`). |
+| GET | `/raffles/{id}/logos/{logo_id}` | Logo as `image/png`. |
+| DELETE | `/raffles/{id}/logos/{logo_id}` | Remove a logo. |
+| GET | `/register/{token}` | **Public.** Token info (number + raffle name). 20/min. |
 | POST | `/register/{token}` | **Public.** Submit name + email. 20/min. |
 | GET | `/raffles/{id}/entries` | List entries. |
 | GET | `/raffles/{id}/entries/export` | CSV download. |
@@ -86,6 +90,23 @@ Admin/platform endpoints (`/orgs*`) require a JWT from `POST /auth/login`.
 | GET | `/raffles/{id}/winners` | Recorded winners. |
 
 Interactive docs at `/docs` when the backend is running.
+
+### Compliant raffle tickets (RIT / NY rules)
+
+Printed tickets (the `/tickets/sheet` PNG) carry the legally-required ticket
+face: the authorized organization name + **Games-of-Chance ID** (`goc_id` on the
+org), the **drawing date/time/location**, the consecutive **serial number** (on
+the body and both edges), the **ticket price**, the **prize list**, the exact
+statement *"Ticket holders need not be present to win."*, and a tear-off **stub**
+with blank pen write-in lines (Name / Address / Phone). The QR (encoding the
+unguessable registration token) is printed alongside so the seller can scan it
+at point of sale to register the buyer.
+
+These come from optional, **print-only** raffle fields (no payment/sale
+tracking): `ticket_price`, `prizes`, `drawing_datetime`, `drawing_location` on
+the raffle, and `goc_id` on the org. A raffle may carry up to 6 **logos** (it can
+be co-hosted by several organizations); SVGs are rasterized to PNG by the web
+uploader before upload.
 
 ---
 

@@ -5,6 +5,8 @@ import type {
   GenerateTicketsResponse,
   Raffle,
   RaffleDetail,
+  RaffleInput,
+  RaffleLogo,
   RegisterConfirmation,
   RegisterInfo,
   Ticket,
@@ -68,8 +70,8 @@ export async function getRaffle(id: string): Promise<RaffleDetail> {
   return (await authed.get<RaffleDetail>(`/raffles/${id}`)).data;
 }
 
-export async function createRaffle(name: string): Promise<Raffle> {
-  return (await authed.post<Raffle>("/raffles", { name })).data;
+export async function createRaffle(input: RaffleInput): Promise<Raffle> {
+  return (await authed.post<Raffle>("/raffles", input)).data;
 }
 
 export async function updateRaffle(
@@ -127,6 +129,86 @@ export async function downloadTicketSheet(
   a.download = `${raffleName.replace(/[^a-z0-9]+/gi, "-")}-print-sheet.png`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+// --- Logos ----------------------------------------------------------------
+
+/**
+ * Rasterize an SVG to a PNG Blob in the browser (canvas), so the backend only
+ * ever stores PNG and we don't need a server-side SVG converter. Non-SVG files
+ * pass through unchanged.
+ */
+async function rasterizeIfSvg(file: File): Promise<Blob> {
+  const isSvg =
+    file.type === "image/svg+xml" || file.name.toLowerCase().endsWith(".svg");
+  if (!isSvg) return file;
+
+  const text = await file.text();
+  const url = URL.createObjectURL(new Blob([text], { type: "image/svg+xml" }));
+  try {
+    const img = new Image();
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error("Could not load SVG"));
+      img.src = url;
+    });
+    const maxSide = 400;
+    const natW = img.width || 300;
+    const natH = img.height || 300;
+    const scale = Math.min(1, maxSide / Math.max(natW, natH));
+    const w = Math.max(1, Math.round(natW * scale));
+    const h = Math.max(1, Math.round(natH * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Could not get a 2D canvas context");
+    ctx.drawImage(img, 0, 0, w, h);
+    return await new Promise<Blob>((resolve, reject) =>
+      canvas.toBlob(
+        (b) => (b ? resolve(b) : reject(new Error("Canvas export failed"))),
+        "image/png"
+      )
+    );
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+export async function listRaffleLogos(raffleId: string): Promise<RaffleLogo[]> {
+  return (await authed.get<RaffleLogo[]>(`/raffles/${raffleId}/logos`)).data;
+}
+
+export async function uploadRaffleLogo(
+  raffleId: string,
+  file: File,
+  name?: string
+): Promise<RaffleLogo> {
+  const png = await rasterizeIfSvg(file);
+  // Rasterized SVGs become PNG; other files keep their original name so the
+  // backend's content sniffing / any extension hint stays accurate.
+  const filename = png === (file as Blob) ? file.name : "logo.png";
+  const form = new FormData();
+  form.append("file", png, filename);
+  if (name?.trim()) form.append("name", name.trim());
+  return (await authed.post<RaffleLogo>(`/raffles/${raffleId}/logos`, form)).data;
+}
+
+export async function fetchRaffleLogoUrl(
+  raffleId: string,
+  logoId: string
+): Promise<string> {
+  const res = await authed.get(`/raffles/${raffleId}/logos/${logoId}`, {
+    responseType: "blob",
+  });
+  return URL.createObjectURL(res.data as Blob);
+}
+
+export async function deleteRaffleLogo(
+  raffleId: string,
+  logoId: string
+): Promise<void> {
+  await authed.delete(`/raffles/${raffleId}/logos/${logoId}`);
 }
 
 // --- Entries --------------------------------------------------------------

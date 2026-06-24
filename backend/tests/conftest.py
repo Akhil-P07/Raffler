@@ -39,6 +39,7 @@ _MODULES_TO_RELOAD = [
     "routers.register",
     "routers.entries",
     "routers.draw",
+    "routers.logos",
     "main",
 ]
 

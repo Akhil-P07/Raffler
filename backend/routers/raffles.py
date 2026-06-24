@@ -27,7 +27,14 @@ def create_raffle(
     db: Session = Depends(get_db),
 ) -> RaffleResponse:
     enforce_active_raffle_limit(db, org.id, org.plan)
-    raffle = Raffle(org_id=org.id, name=body.name)
+    raffle = Raffle(
+        org_id=org.id,
+        name=body.name,
+        ticket_price=body.ticket_price,
+        prizes=body.prizes,
+        drawing_datetime=body.drawing_datetime,
+        drawing_location=body.drawing_location,
+    )
     db.add(raffle)
     db.commit()
     db.refresh(raffle)
@@ -60,12 +67,9 @@ def get_raffle(
     ticket_count = db.scalar(
         select(func.count()).select_from(Ticket).where(Ticket.raffle_id == raffle.id)
     ) or 0
+    base = RaffleResponse.model_validate(raffle)
     return RaffleDetailResponse(
-        id=raffle.id,
-        name=raffle.name,
-        status=raffle.status,
-        drawn_at=raffle.drawn_at,
-        created_at=raffle.created_at,
+        **base.model_dump(),
         entry_count=entry_count,
         ticket_count=ticket_count,
     )
@@ -89,6 +93,12 @@ def update_raffle(
         raffle.name = body.name
     if body.status is not None:
         raffle.status = body.status
+    # Use the explicitly-provided set so a field can be cleared (set to null)
+    # vs. simply left untouched.
+    provided = body.model_fields_set
+    for fld in ("ticket_price", "prizes", "drawing_datetime", "drawing_location"):
+        if fld in provided:
+            setattr(raffle, fld, getattr(body, fld))
     db.commit()
     db.refresh(raffle)
     return RaffleResponse.model_validate(raffle)

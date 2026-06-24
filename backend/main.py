@@ -17,7 +17,7 @@ from config import settings
 from database import Organization, SessionLocal, init_db
 from middleware.rate_limit import limiter
 from middleware.security_headers import SecurityHeadersMiddleware
-from routers import auth, draw, entries, raffles, register, tickets
+from routers import auth, draw, entries, logos, raffles, register, tickets
 from security import generate_api_key, hash_api_key
 
 logger = logging.getLogger("raffler")
@@ -63,6 +63,7 @@ app.include_router(tickets.router)
 app.include_router(register.router)
 app.include_router(entries.router)
 app.include_router(draw.router)
+app.include_router(logos.router)
 
 
 def _seed_founding_org() -> None:

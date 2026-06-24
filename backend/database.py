@@ -12,6 +12,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    LargeBinary,
     String,
     UniqueConstraint,
     create_engine,
@@ -77,6 +78,9 @@ class Organization(Base):
     # bcrypt hash of the API key — the plaintext key is shown once at creation.
     api_key: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     plan: Mapped[str] = mapped_column(String, default="free", nullable=False)
+    # NY/RIT raffle rules: the org's Games of Chance ID, printed on tickets
+    # "if applicable". Optional — orgs without one just omit the line.
+    goc_id: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -97,6 +101,14 @@ class Raffle(Base):
     )
     name: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[str] = mapped_column(String, default="active", nullable=False)
+    # Print-only raffle metadata required on the ticket face by NY/RIT rules.
+    # Stored so each printed ticket can carry them; NOT payment/sale tracking.
+    ticket_price: Mapped[str | None] = mapped_column(String, nullable=True)
+    prizes: Mapped[str | None] = mapped_column(String, nullable=True)
+    drawing_datetime: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    drawing_location: Mapped[str | None] = mapped_column(String, nullable=True)
     rng_seed: Mapped[str | None] = mapped_column(String, nullable=True)
     drawn_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
@@ -117,6 +129,12 @@ class Raffle(Base):
     )
     winners: Mapped[list["Winner"]] = relationship(
         back_populates="raffle", cascade="all, delete-orphan", passive_deletes=True
+    )
+    logos: Mapped[list["RaffleLogo"]] = relationship(
+        back_populates="raffle",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="RaffleLogo.position",
     )
 
 
@@ -196,6 +214,28 @@ class Winner(Base):
 
     raffle: Mapped["Raffle"] = relationship(back_populates="winners")
     entry: Mapped["Entry"] = relationship(back_populates="winner")
+
+
+class RaffleLogo(Base):
+    """A logo printed on a raffle's tickets. A raffle can carry several (it may
+    be co-hosted by multiple organizations), each optionally labeled."""
+
+    __tablename__ = "raffle_logos"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    raffle_id: Mapped[str] = mapped_column(
+        String, ForeignKey("raffles.id", ondelete="CASCADE"), nullable=False
+    )
+    # Optional label (e.g. the co-hosting organization's name).
+    name: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Normalized PNG bytes (SVGs are rasterized to PNG before upload).
+    image: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    position: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    raffle: Mapped["Raffle"] = relationship(back_populates="logos")
 
 
 def init_db() -> None:

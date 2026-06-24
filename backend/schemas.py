@@ -27,6 +27,8 @@ class TokenResponse(BaseModel):
 class CreateOrgRequest(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     plan: str = Field(default="free")
+    # Games of Chance ID, printed on tickets "if applicable" (NY/RIT rules).
+    goc_id: str | None = Field(default=None, max_length=60)
 
     @field_validator("name")
     @classmethod
@@ -43,11 +45,20 @@ class CreateOrgRequest(BaseModel):
             raise ValueError("plan must be 'free' or 'club'")
         return v
 
+    @field_validator("goc_id")
+    @classmethod
+    def strip_goc(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip()
+        return v or None
+
 
 class OrgCreatedResponse(BaseModel):
     id: str
     name: str
     plan: str
+    goc_id: str | None = None
     # Plaintext API key — shown exactly once, never stored or retrievable again.
     api_key: str
 
@@ -62,8 +73,21 @@ class RotatedKeyResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+def _blank_to_none(v: str | None) -> str | None:
+    """Strip a text field; treat empty/whitespace as None (field omitted)."""
+    if v is None:
+        return None
+    v = v.strip()
+    return v or None
+
+
 class CreateRaffleRequest(BaseModel):
     name: str = Field(min_length=1, max_length=120)
+    # Legal ticket-face metadata (all optional; printed when present).
+    ticket_price: str | None = Field(default=None, max_length=20)
+    prizes: str | None = Field(default=None, max_length=500)
+    drawing_datetime: datetime | None = None
+    drawing_location: str | None = Field(default=None, max_length=200)
 
     @field_validator("name")
     @classmethod
@@ -73,10 +97,19 @@ class CreateRaffleRequest(BaseModel):
             raise ValueError("name must not be empty")
         return v
 
+    @field_validator("ticket_price", "prizes", "drawing_location")
+    @classmethod
+    def strip_optional(cls, v: str | None) -> str | None:
+        return _blank_to_none(v)
+
 
 class UpdateRaffleRequest(BaseModel):
     name: str | None = Field(default=None, max_length=120)
     status: str | None = None
+    ticket_price: str | None = Field(default=None, max_length=20)
+    prizes: str | None = Field(default=None, max_length=500)
+    drawing_datetime: datetime | None = None
+    drawing_location: str | None = Field(default=None, max_length=200)
 
     @field_validator("name")
     @classmethod
@@ -96,6 +129,11 @@ class UpdateRaffleRequest(BaseModel):
             raise ValueError("status must be 'active' or 'closed'")
         return v
 
+    @field_validator("ticket_price", "prizes", "drawing_location")
+    @classmethod
+    def strip_optional(cls, v: str | None) -> str | None:
+        return _blank_to_none(v)
+
 
 class RaffleResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -103,6 +141,10 @@ class RaffleResponse(BaseModel):
     id: str
     name: str
     status: str
+    ticket_price: str | None
+    prizes: str | None
+    drawing_datetime: datetime | None
+    drawing_location: str | None
     drawn_at: datetime | None
     created_at: datetime
 
@@ -110,6 +152,16 @@ class RaffleResponse(BaseModel):
 class RaffleDetailResponse(RaffleResponse):
     entry_count: int
     ticket_count: int
+
+
+class RaffleLogoResponse(BaseModel):
+    """Logo metadata only — the image bytes are served by a separate endpoint."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    name: str | None
+    position: int
 
 
 # ---------------------------------------------------------------------------
