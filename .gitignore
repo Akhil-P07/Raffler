@@ -1,5 +1,24 @@
+# Claude workspace + the build brief (kept local)
 .claude/
 forClaude.md
+
+# Secrets — never commit. .env.example IS committed (doesn't match these).
 .env
 *.env
+
+# Python
 .venv/
+__pycache__/
+*.pyc
+*.db
+*.sqlite3
+
+# Node / frontend
+node_modules/
+dist/
+*.local
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/

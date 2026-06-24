@@ -1,0 +1,53 @@
+# Full local stack: PostgreSQL + backend + frontend.
+#   docker compose up --build
+# Then open http://localhost:5173 (admin) — the API is on http://localhost:8000.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: raffler
+      POSTGRES_PASSWORD: raffler
+      POSTGRES_DB: raffleapi
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U raffler -d raffleapi"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://raffler:raffler@db:5432/raffleapi
+      # Dev-only secret; override in any real deployment.
+      SECRET_KEY: local-dev-secret-key-at-least-32-bytes-long
+      BASE_URL: http://localhost:5173
+      ADMIN_EMAIL: admin@example.com
+      ADMIN_PASSWORD: changeme
+      FRONTEND_ORIGIN: http://localhost:5173
+      API_ORIGIN: http://localhost:8000
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Browser talks to the API directly, so this is the host-visible URL.
+        VITE_API_BASE: http://localhost:8000
+        VITE_BASE_URL: http://localhost:5173
+    depends_on:
+      - backend
+    environment:
+      PORT: 5173
+    ports:
+      - "5173:5173"
+
+volumes:
+  pgdata:

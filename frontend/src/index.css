@@ -1,0 +1,10 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@media print {
+  /* Hide chrome when printing the ticket sheet. */
+  .no-print {
+    display: none !important;
+  }
+}
