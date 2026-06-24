@@ -126,8 +126,10 @@ class TicketResponse(BaseModel):
 
     id: str
     ticket_number: int
-    token: str
     registered: bool
+    # NOTE: the unguessable `token` is deliberately NOT exposed. It only ever
+    # lives inside the server-rendered QR image / print sheet, so dumping every
+    # token in a list response can't leak the registration boundary.
 
 
 class GenerateTicketsResponse(BaseModel):

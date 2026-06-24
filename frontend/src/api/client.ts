@@ -8,6 +8,7 @@ import type {
   RegisterConfirmation,
   RegisterInfo,
   Ticket,
+  Winner,
 } from "./types";
 
 // In dev, default to "/api" so Vite's proxy forwards to the backend and the
@@ -163,9 +164,8 @@ export async function drawRaffle(
   ).data;
 }
 
-export async function listWinners(raffleId: string) {
-  return (await authed.get<DrawResponse["winners"]>(`/raffles/${raffleId}/winners`))
-    .data;
+export async function listWinners(raffleId: string): Promise<Winner[]> {
+  return (await authed.get<Winner[]>(`/raffles/${raffleId}/winners`)).data;
 }
 
 // --- Public registration --------------------------------------------------

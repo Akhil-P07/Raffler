@@ -19,8 +19,9 @@ export interface RaffleDetail extends Raffle {
 export interface Ticket {
   id: string;
   ticket_number: number;
-  token: string;
   registered: boolean;
+  // No `token`: the server never exposes it. The QR is fetched by ticket id
+  // (GET /tickets/{id}/qr) and the print sheet is rendered server-side.
 }
 
 export interface GenerateTicketsResponse {

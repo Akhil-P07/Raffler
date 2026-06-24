@@ -26,4 +26,13 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "Referrer-Policy", "strict-origin-when-cross-origin"
         )
         response.headers.setdefault("Content-Security-Policy", csp)
+        # HSTS only matters over HTTPS (browsers ignore it on plain HTTP, so
+        # local dev is unaffected). Respect the proxy's forwarded scheme on
+        # Railway, where TLS terminates upstream.
+        scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
+        if scheme == "https":
+            response.headers.setdefault(
+                "Strict-Transport-Security",
+                "max-age=63072000; includeSubDomains",
+            )
         return response

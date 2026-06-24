@@ -15,6 +15,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     create_engine,
+    event,
     func,
 )
 from sqlalchemy.orm import (
@@ -50,6 +51,16 @@ engine = create_engine(DATABASE_URL, connect_args=_connect_args, pool_pre_ping=T
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
+if DATABASE_URL.startswith("sqlite"):
+    # SQLite ignores ON DELETE CASCADE unless foreign keys are enabled per
+    # connection. Turn them on so local dev matches PostgreSQL's enforcement.
+    @event.listens_for(engine, "connect")
+    def _enable_sqlite_fks(dbapi_conn, _record):  # noqa: ANN001
+        cursor = dbapi_conn.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
+
 def _uuid() -> str:
     return str(uuid.uuid4())
 
@@ -70,8 +81,10 @@ class Organization(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
+    # passive_deletes lets the DB's ON DELETE CASCADE own the cascade rather
+    # than SQLAlchemy emitting its own child DELETEs.
     raffles: Mapped[list["Raffle"]] = relationship(
-        back_populates="org", cascade="all, delete-orphan"
+        back_populates="org", cascade="all, delete-orphan", passive_deletes=True
     )
 
 
@@ -97,13 +110,13 @@ class Raffle(Base):
 
     org: Mapped["Organization"] = relationship(back_populates="raffles")
     tickets: Mapped[list["Ticket"]] = relationship(
-        back_populates="raffle", cascade="all, delete-orphan"
+        back_populates="raffle", cascade="all, delete-orphan", passive_deletes=True
     )
     entries: Mapped[list["Entry"]] = relationship(
-        back_populates="raffle", cascade="all, delete-orphan"
+        back_populates="raffle", cascade="all, delete-orphan", passive_deletes=True
     )
     winners: Mapped[list["Winner"]] = relationship(
-        back_populates="raffle", cascade="all, delete-orphan"
+        back_populates="raffle", cascade="all, delete-orphan", passive_deletes=True
     )
 
 
@@ -129,7 +142,10 @@ class Ticket(Base):
 
     raffle: Mapped["Raffle"] = relationship(back_populates="tickets")
     entry: Mapped["Entry | None"] = relationship(
-        back_populates="ticket", cascade="all, delete-orphan", uselist=False
+        back_populates="ticket",
+        cascade="all, delete-orphan",
+        uselist=False,
+        passive_deletes=True,
     )
 
 
@@ -156,7 +172,10 @@ class Entry(Base):
     ticket: Mapped["Ticket"] = relationship(back_populates="entry")
     raffle: Mapped["Raffle"] = relationship(back_populates="entries")
     winner: Mapped["Winner | None"] = relationship(
-        back_populates="entry", cascade="all, delete-orphan", uselist=False
+        back_populates="entry",
+        cascade="all, delete-orphan",
+        uselist=False,
+        passive_deletes=True,
     )
 
 

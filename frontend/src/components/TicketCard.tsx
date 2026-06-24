@@ -16,12 +16,20 @@ export default function TicketCard({ ticket, qrUrl }: Props) {
         Ticket
       </div>
       <div className="text-2xl font-bold text-gray-900">#{ticket.ticket_number}</div>
-      <img
-        src={qrUrl}
-        alt={`QR code for ticket ${ticket.ticket_number}`}
-        className="my-2 h-32 w-32"
-        loading="lazy"
-      />
+      {qrUrl ? (
+        <img
+          src={qrUrl}
+          alt={`QR code for ticket ${ticket.ticket_number}`}
+          className="my-2 h-32 w-32"
+          loading="lazy"
+        />
+      ) : (
+        // Avoid <img src=""> (broken-image icon + layout shift) while loading.
+        <div
+          className="my-2 h-32 w-32 animate-pulse rounded bg-gray-100"
+          aria-label="Loading QR code"
+        />
+      )}
       <div
         className={`text-xs font-medium ${
           ticket.registered ? "text-green-600" : "text-gray-400"

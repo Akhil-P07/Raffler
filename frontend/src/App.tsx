@@ -29,7 +29,14 @@ function ApiKeyGate({ children }: { children: React.ReactNode }) {
           Enter your organization API key to manage raffles. It's stored only in
           this browser.
         </p>
+        <label
+          htmlFor="api-key"
+          className="mb-1 block text-sm font-medium text-gray-700"
+        >
+          Organization API key
+        </label>
         <input
+          id="api-key"
           type="password"
           value={value}
           onChange={(e) => setValue(e.target.value)}
@@ -77,12 +84,14 @@ function AdminShell({ children }: { children: React.ReactNode }) {
 export default function App() {
   const location = useLocation();
   // The public registration route must never sit behind the admin key gate.
-  const isPublic = location.pathname.startsWith("/register/");
+  const isPublic = location.pathname.startsWith("/register");
 
   if (isPublic) {
     return (
       <Routes>
         <Route path="/register/:token" element={<Register />} />
+        {/* /register with no token isn't a real link (QRs always carry one) */}
+        <Route path="/register" element={<Navigate to="/" replace />} />
       </Routes>
     );
   }

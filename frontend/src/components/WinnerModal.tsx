@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import type { Winner } from "../api/types";
 
 interface Props {
@@ -8,14 +9,30 @@ interface Props {
 
 /** Overlay announcing the drawn winner(s). The draw is final and recorded. */
 export default function WinnerModal({ winners, alreadyDrawn, onClose }: Props) {
+  const closeRef = useRef<HTMLButtonElement>(null);
+
+  // Move focus into the dialog on open so keyboard/screen-reader users land
+  // inside it rather than behind the backdrop.
+  useEffect(() => {
+    closeRef.current?.focus();
+  }, []);
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="winner-title"
+      tabIndex={-1}
+      onClick={onClose}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") onClose();
+      }}
     >
-      <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+      <div
+        className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="mb-1 text-center text-4xl">🎉</div>
         <h2
           id="winner-title"
@@ -56,6 +73,7 @@ export default function WinnerModal({ winners, alreadyDrawn, onClose }: Props) {
         </p>
 
         <button
+          ref={closeRef}
           type="button"
           onClick={onClose}
           className="mt-4 w-full rounded-lg bg-brand py-2 font-semibold text-white hover:bg-brand-dark"

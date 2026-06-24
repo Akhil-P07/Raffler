@@ -48,7 +48,10 @@ def _resolve_ticket(token: str, db: Session) -> tuple[Ticket, Raffle]:
 
 
 @router.get("/register/{token}", response_model=RegisterInfoResponse)
-def register_info(token: str, db: Session = Depends(get_db)) -> RegisterInfoResponse:
+@limiter.limit(REGISTER_LIMIT)
+def register_info(
+    request: Request, token: str, db: Session = Depends(get_db)
+) -> RegisterInfoResponse:
     ticket, raffle = _resolve_ticket(token, db)
     return RegisterInfoResponse(
         ticket_number=ticket.ticket_number,

@@ -33,6 +33,8 @@ export default function EntryTable({ entries }: Props) {
   }
 
   const arrow = (key: SortKey) => (key === sortKey ? (asc ? " ▲" : " ▼") : "");
+  const ariaSort = (key: SortKey): "ascending" | "descending" | "none" =>
+    key === sortKey ? (asc ? "ascending" : "descending") : "none";
 
   if (entries.length === 0) {
     return (
@@ -47,32 +49,32 @@ export default function EntryTable({ entries }: Props) {
       <table className="min-w-full divide-y divide-gray-200 text-sm">
         <thead>
           <tr className="text-left text-gray-600">
-            <th className="px-3 py-2">
+            <th className="px-3 py-2" aria-sort={ariaSort("ticket_number")}>
               <button
                 type="button"
                 className="font-semibold hover:text-brand"
                 onClick={() => toggle("ticket_number")}
               >
-                Ticket #{arrow("ticket_number")}
+                Ticket #<span aria-hidden="true">{arrow("ticket_number")}</span>
               </button>
             </th>
-            <th className="px-3 py-2">
+            <th className="px-3 py-2" aria-sort={ariaSort("name")}>
               <button
                 type="button"
                 className="font-semibold hover:text-brand"
                 onClick={() => toggle("name")}
               >
-                Name{arrow("name")}
+                Name<span aria-hidden="true">{arrow("name")}</span>
               </button>
             </th>
             <th className="px-3 py-2 font-semibold">Email</th>
-            <th className="px-3 py-2">
+            <th className="px-3 py-2" aria-sort={ariaSort("registered_at")}>
               <button
                 type="button"
                 className="font-semibold hover:text-brand"
                 onClick={() => toggle("registered_at")}
               >
-                Registered{arrow("registered_at")}
+                Registered<span aria-hidden="true">{arrow("registered_at")}</span>
               </button>
             </th>
           </tr>

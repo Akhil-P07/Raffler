@@ -12,6 +12,17 @@ from schemas import EntryResponse
 
 router = APIRouter(tags=["entries"])
 
+# Spreadsheet formula-injection: a cell beginning with one of these is treated
+# as a formula by Excel/Sheets. name/email come from public registration, so
+# neutralize them by prefixing a single quote before writing to CSV.
+_CSV_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _csv_safe(value: object) -> object:
+    if isinstance(value, str) and value.startswith(_CSV_FORMULA_PREFIXES):
+        return "'" + value
+    return value
+
 
 def _entries_with_numbers(db: Session, raffle_id: str) -> list[tuple[Entry, int]]:
     rows = db.execute(
@@ -42,7 +53,11 @@ def list_entries(
     ]
 
 
-@router.get("/raffles/{raffle_id}/entries/export")
+@router.get(
+    "/raffles/{raffle_id}/entries/export",
+    response_class=Response,
+    responses={200: {"content": {"text/csv": {}}, "description": "CSV download"}},
+)
 def export_entries(
     raffle_id: str,
     org: Organization = Depends(require_org),
@@ -54,7 +69,14 @@ def export_entries(
     writer = csv.writer(buf)
     writer.writerow(["ticket_number", "name", "email", "registered_at"])
     for entry, number in _entries_with_numbers(db, raffle.id):
-        writer.writerow([number, entry.name, entry.email, entry.registered_at])
+        writer.writerow(
+            [
+                number,
+                _csv_safe(entry.name),
+                _csv_safe(entry.email),
+                entry.registered_at,
+            ]
+        )
 
     filename = f"raffle-{raffle.id}-entries.csv"
     return Response(

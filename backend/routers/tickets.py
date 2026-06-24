@@ -81,7 +81,11 @@ def list_tickets(
     return [TicketResponse.model_validate(t) for t in tickets]
 
 
-@router.get("/raffles/{raffle_id}/tickets/sheet")
+@router.get(
+    "/raffles/{raffle_id}/tickets/sheet",
+    response_class=Response,
+    responses={200: {"content": {"image/png": {}}, "description": "Print sheet PNG"}},
+)
 def ticket_sheet(
     raffle_id: str,
     org: Organization = Depends(require_org),
@@ -107,7 +111,11 @@ def ticket_sheet(
     )
 
 
-@router.get("/tickets/{ticket_id}/qr")
+@router.get(
+    "/tickets/{ticket_id}/qr",
+    response_class=Response,
+    responses={200: {"content": {"image/png": {}}, "description": "Ticket QR PNG"}},
+)
 def ticket_qr(
     ticket_id: str,
     org: Organization = Depends(require_org),

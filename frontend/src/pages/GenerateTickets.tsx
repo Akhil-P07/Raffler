@@ -25,6 +25,8 @@ export default function GenerateTickets() {
   const [qrUrls, setQrUrls] = useState<Record<string, string>>({});
   const qrUrlsRef = useRef<Record<string, string>>({});
   qrUrlsRef.current = qrUrls;
+  // Ticket ids whose QR fetch is in flight, so re-renders don't re-request.
+  const fetchingRef = useRef<Set<string>>(new Set());
 
   async function refresh() {
     const [raffle, ts] = await Promise.all([
@@ -45,10 +47,16 @@ export default function GenerateTickets() {
   }, [raffleId]);
 
   // Lazily fetch a QR object URL for any ticket that doesn't have one yet.
+  // Depends only on `tickets`: in-flight ids are tracked in a ref and existing
+  // urls are read from qrUrlsRef, so storing one URL doesn't re-fire the effect
+  // (which would cancel/restart the whole batch).
   useEffect(() => {
     let cancelled = false;
-    const missing = tickets.filter((t) => !qrUrls[t.id]);
+    const missing = tickets.filter(
+      (t) => !qrUrlsRef.current[t.id] && !fetchingRef.current.has(t.id)
+    );
     if (missing.length === 0) return;
+    missing.forEach((t) => fetchingRef.current.add(t.id));
     (async () => {
       for (const t of missing) {
         try {
@@ -60,13 +68,15 @@ export default function GenerateTickets() {
           setQrUrls((prev) => ({ ...prev, [t.id]: url }));
         } catch {
           /* leave this card without a QR rather than failing the page */
+        } finally {
+          fetchingRef.current.delete(t.id);
         }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [tickets, qrUrls]);
+  }, [tickets]);
 
   async function onGenerate(e: React.FormEvent) {
     e.preventDefault();

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import EntryTable from "../components/EntryTable";
 import WinnerModal from "../components/WinnerModal";
@@ -33,6 +33,8 @@ export default function AdminDashboard() {
   const [alreadyDrawn, setAlreadyDrawn] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Hard guard against a re-entrant draw (the draw is final and irreversible).
+  const drawInFlight = useRef(false);
 
   async function loadRaffles() {
     setRaffles(await listRaffles());
@@ -60,13 +62,14 @@ export default function AdminDashboard() {
   }
 
   async function onDraw() {
-    if (!detail || busy) return;
+    if (!detail || busy || drawInFlight.current) return;
     if (
       !window.confirm(
         "Draw is final and cannot be undone. Make sure you've exported the entries CSV first. Continue?"
       )
     )
       return;
+    drawInFlight.current = true;
     setBusy(true);
     setError(null);
     try {
@@ -79,6 +82,7 @@ export default function AdminDashboard() {
       setError(errorMessage(err, "Could not run the draw."));
     } finally {
       setBusy(false);
+      drawInFlight.current = false;
     }
   }
 

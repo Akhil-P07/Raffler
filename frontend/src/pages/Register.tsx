@@ -10,6 +10,7 @@ import type { RegisterConfirmation, RegisterInfo } from "../api/types";
 type LoadState =
   | { kind: "loading" }
   | { kind: "ready"; info: RegisterInfo }
+  | { kind: "already"; info: RegisterInfo }
   | { kind: "notfound" }
   | { kind: "done"; confirmation: RegisterConfirmation };
 
@@ -32,12 +33,10 @@ export default function Register() {
     getRegisterInfo(token)
       .then((info) => {
         if (cancelled) return;
+        // Distinct state for an already-registered ticket so the buyer sees a
+        // clear "already entered" message instead of the form.
         setState(
-          info.registered
-            ? // Already registered: surface it but don't pretend it's a fresh
-              // confirmation.
-              { kind: "ready", info }
-            : { kind: "ready", info }
+          info.registered ? { kind: "already", info } : { kind: "ready", info }
         );
       })
       .catch(() => !cancelled && setState({ kind: "notfound" }));
@@ -49,6 +48,10 @@ export default function Register() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (inFlight.current || submitting) return;
+    if (!name.trim()) {
+      setError("Please enter your name.");
+      return;
+    }
     inFlight.current = true;
     setSubmitting(true);
     setError(null);
@@ -81,7 +84,7 @@ export default function Register() {
           </div>
         )}
 
-        {state.kind === "ready" && state.info.registered && (
+        {state.kind === "already" && (
           <div className="text-center">
             <div className="mb-2 text-4xl">✅</div>
             <h1 className="text-lg font-bold text-gray-900">
@@ -95,7 +98,7 @@ export default function Register() {
           </div>
         )}
 
-        {state.kind === "ready" && !state.info.registered && (
+        {state.kind === "ready" && (
           <>
             <h1 className="text-center text-xl font-bold text-gray-900">
               {state.info.raffle_name}
@@ -118,7 +121,7 @@ export default function Register() {
                   maxLength={100}
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-3 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
                   autoComplete="name"
                 />
               </div>
@@ -135,16 +138,20 @@ export default function Register() {
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-3 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
                   autoComplete="email"
                   inputMode="email"
                 />
               </div>
-              {error && <p className="text-sm text-red-600">{error}</p>}
+              {/* Rendered unconditionally so screen readers announce errors
+                  written into the live region after a failed submit. */}
+              <p role="alert" aria-live="assertive" className="text-sm text-red-600">
+                {error ?? ""}
+              </p>
               <button
                 type="submit"
                 disabled={submitting}
-                className="w-full rounded-lg bg-brand py-2 font-semibold text-white hover:bg-brand-dark disabled:opacity-60"
+                className="w-full rounded-lg bg-brand py-3 font-semibold text-white hover:bg-brand-dark disabled:opacity-60"
               >
                 {submitting ? "Registering…" : "Register"}
               </button>
