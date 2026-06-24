@@ -1,0 +1,5 @@
+.claude/
+forClaude.md
+.env
+*.env
+.venv/
