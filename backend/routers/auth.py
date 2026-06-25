@@ -1,31 +1,55 @@
-"""Authentication: self-service signup (email+password or Google), login, the
-admin-managed premium allowlist, and account/org self-service.
+"""Authentication & org membership.
 
-There are no API keys. Everyone can self-sign-up into the free tier; emails on
-the premium allowlist (DB table ∪ the PREMIUM_EMAILS env list) get the club
-plan. The plan is re-evaluated on every login so the admin can promote/demote.
+Self-service signup (email+password or Google) creates an account that OWNS a
+new organization. A user can belong to several orgs via Membership rows; the
+session token names the currently-selected org. Owners can invite emails, who
+join as members by accepting an emailed link. The premium allowlist grants the
+club plan to the orgs an allowlisted email owns. No API keys — all
+session-based.
 """
+import hmac
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Request,
+    Response,
+    status,
+)
 from fastapi.responses import RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from config import settings
-from database import Organization, PremiumEmail, User, get_db
-from middleware.ownership import get_session, require_org
+from database import (
+    Membership,
+    OrgInvite,
+    Organization,
+    PremiumEmail,
+    User,
+    get_db,
+)
+from middleware.ownership import get_session
 from middleware.rate_limit import LOGIN_LIMIT, limiter
 from schemas import (
+    AcceptInviteRequest,
     AdminLoginRequest,
     AuthResponse,
     GoogleAuthUrlResponse,
+    InviteInfoResponse,
     LoginRequest,
     MeResponse,
+    OrgMembershipSummary,
+    OrgMemberRequest,
+    OrgMemberResponse,
     OrgSummary,
     PremiumEmailRequest,
     PremiumEmailResponse,
+    SelectOrgRequest,
     SignupRequest,
     TokenResponse,
     UpdateOrgRequest,
@@ -41,6 +65,7 @@ from security import (
     verify_oauth_state,
     verify_password,
 )
+from services.email import send_invite_email
 
 router = APIRouter(tags=["auth"])
 
@@ -49,6 +74,8 @@ _bearer = HTTPBearer(auto_error=False)
 # A fixed bcrypt hash to verify against when an email is unknown, so login
 # takes the same time whether or not the account exists (no timing oracle).
 _DUMMY_HASH = hash_password("not-a-real-password-placeholder")
+
+_OAUTH_STATE_COOKIE = "raffler_oauth_state"
 
 
 # --- helpers --------------------------------------------------------------
@@ -72,13 +99,81 @@ def _plan_for(db: Session, email: str) -> str:
     return "club" if _is_premium(db, email) else "free"
 
 
-def _auth_response(user: User, org: Organization) -> AuthResponse:
-    token, expires_in = create_session_token(user.id, user.email, org.id)
+def _membership(db: Session, user_id: str, org_id: str) -> Membership | None:
+    return db.scalar(
+        select(Membership).where(
+            Membership.user_id == user_id, Membership.org_id == org_id
+        )
+    )
+
+
+def _memberships(db: Session, user_id: str) -> list[Membership]:
+    return list(
+        db.scalars(
+            select(Membership)
+            .where(Membership.user_id == user_id)
+            .order_by(Membership.created_at)
+        ).all()
+    )
+
+
+def _org_summaries(db: Session, user_id: str) -> list[OrgMembershipSummary]:
+    rows = db.execute(
+        select(Organization, Membership.role)
+        .join(Membership, Membership.org_id == Organization.id)
+        .where(Membership.user_id == user_id)
+        .order_by(Organization.created_at)
+    ).all()
+    return [
+        OrgMembershipSummary(
+            id=o.id, name=o.name, plan=o.plan, goc_id=o.goc_id, role=role
+        )
+        for o, role in rows
+    ]
+
+
+def _default_or_create_membership(db: Session, user: User) -> Membership:
+    """The membership a login defaults to: an owner org if any, else the first.
+    If the user has no orgs at all (e.g. all memberships removed), give them a
+    fresh personal org so they're never locked out."""
+    ms = _memberships(db, user.id)
+    if not ms:
+        org = Organization(
+            name=user.email.split("@")[0], plan=_plan_for(db, user.email)
+        )
+        db.add(org)
+        db.flush()
+        m = Membership(user_id=user.id, org_id=org.id, role="owner")
+        db.add(m)
+        db.commit()
+        return m
+    owners = [m for m in ms if m.role == "owner"]
+    return owners[0] if owners else ms[0]
+
+
+def _reeval_owner_plan(db: Session, membership: Membership, email: str) -> None:
+    """Keep an owned org's plan in sync with the owner's allowlist status."""
+    if membership.role != "owner":
+        return
+    org = db.get(Organization, membership.org_id)
+    plan = _plan_for(db, email)
+    if org is not None and org.plan != plan:
+        org.plan = plan
+        db.commit()
+
+
+def _auth_response(db: Session, user: User, membership: Membership) -> AuthResponse:
+    org = db.get(Organization, membership.org_id)
+    token, expires_in = create_session_token(
+        user.id, user.email, org.id, membership.role
+    )
     return AuthResponse(
         access_token=token,
         expires_in=expires_in,
         email=user.email,
+        role=membership.role,
         org=OrgSummary.model_validate(org),
+        orgs=_org_summaries(db, user.id),
     )
 
 
@@ -101,18 +196,17 @@ def register(
             detail="An account with this email already exists.",
         )
     org = Organization(
-        name=body.org_name or email.split("@")[0],
-        plan=_plan_for(db, email),
+        name=body.org_name or email.split("@")[0], plan=_plan_for(db, email)
     )
     db.add(org)
     db.flush()
-    user = User(
-        email=email, password_hash=hash_password(body.password), org_id=org.id
-    )
+    user = User(email=email, password_hash=hash_password(body.password))
     db.add(user)
+    db.flush()
+    membership = Membership(user_id=user.id, org_id=org.id, role="owner")
+    db.add(membership)
     db.commit()
-    db.refresh(org)
-    return _auth_response(user, org)
+    return _auth_response(db, user, membership)
 
 
 @router.post("/auth/login", response_model=AuthResponse)
@@ -133,19 +227,31 @@ def login(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password.",
         )
-    org = db.get(Organization, user.org_id)
-    # Re-evaluate plan so allowlist changes take effect on next login.
-    new_plan = _plan_for(db, email)
-    if org.plan != new_plan:
-        org.plan = new_plan
-        db.commit()
-    return _auth_response(user, org)
+    membership = _default_or_create_membership(db, user)
+    _reeval_owner_plan(db, membership, email)
+    return _auth_response(db, user, membership)
+
+
+@router.post("/auth/select-org", response_model=AuthResponse)
+def select_org(
+    body: SelectOrgRequest,
+    claims: dict[str, Any] = Depends(get_session),
+    db: Session = Depends(get_db),
+) -> AuthResponse:
+    """Switch the session to a different org the user belongs to."""
+    user = db.get(User, claims["sub"])
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+    membership = _membership(db, user.id, body.org_id)
+    if membership is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="You are not a member of that organization.",
+        )
+    return _auth_response(db, user, membership)
 
 
 # --- Google OAuth ---------------------------------------------------------
-
-
-_OAUTH_STATE_COOKIE = "raffler_oauth_state"
 
 
 @router.get("/auth/google/login", response_model=GoogleAuthUrlResponse)
@@ -184,10 +290,8 @@ def google_callback(
         resp.delete_cookie(_OAUTH_STATE_COOKIE)
         return resp
 
-    # Google isn't configured → bounce to the login page, not a raw JSON 503.
     if not settings.google_enabled:
         return _fail("google_failed")
-    # State must be present, validly signed, AND match the cookie set at login.
     cookie_state = request.cookies.get(_OAUTH_STATE_COOKIE)
     if (
         error
@@ -214,43 +318,70 @@ def google_callback(
         )
         db.add(org)
         db.flush()
-        user = User(email=email, google_sub=profile.get("sub"), org_id=org.id)
+        user = User(email=email, google_sub=profile.get("sub"))
         db.add(user)
+        db.flush()
+        membership = Membership(user_id=user.id, org_id=org.id, role="owner")
+        db.add(membership)
         db.commit()
-        db.refresh(org)
     else:
-        org = db.get(Organization, user.org_id)
         if user.google_sub is None:
             user.google_sub = profile.get("sub")
-        new_plan = _plan_for(db, email)
-        if org.plan != new_plan:
-            org.plan = new_plan
-        db.commit()
+            db.commit()
+        membership = _default_or_create_membership(db, user)
+        _reeval_owner_plan(db, membership, email)
 
-    token, _ = create_session_token(user.id, user.email, org.id)
-    # Hand the token to the SPA via the URL *fragment* (after #): fragments are
-    # never sent to servers, so the token can't leak into access logs or the
-    # Referer header the way a query param would. The state cookie is cleared.
+    org = db.get(Organization, membership.org_id)
+    token, _ = create_session_token(user.id, user.email, org.id, membership.role)
+    # Token via the URL *fragment* — fragments aren't sent to servers, so it
+    # can't leak into access logs or the Referer header. State cookie cleared.
     resp = RedirectResponse(url=f"{front}/auth/callback#token={token}")
     resp.delete_cookie(_OAUTH_STATE_COOKIE)
     return resp
 
 
-# --- account / org self-service -------------------------------------------
+# --- current account / org ------------------------------------------------
+
+
+def require_owner(
+    claims: dict[str, Any] = Depends(get_session),
+    db: Session = Depends(get_db),
+) -> Organization:
+    """The current org, requiring the session user to be its owner."""
+    membership = _membership(db, claims["sub"], claims["org_id"])
+    if membership is None or membership.role != "owner":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Owner access required.",
+        )
+    org = db.get(Organization, claims["org_id"])
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+    return org
 
 
 @router.get("/me", response_model=MeResponse)
 def me(
     claims: dict[str, Any] = Depends(get_session),
-    org: Organization = Depends(require_org),
+    db: Session = Depends(get_db),
 ) -> MeResponse:
-    return MeResponse(email=claims["email"], org=OrgSummary.model_validate(org))
+    user = db.get(User, claims["sub"])
+    org = db.get(Organization, claims["org_id"])
+    membership = _membership(db, claims["sub"], claims["org_id"])
+    if user is None or org is None or membership is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+    return MeResponse(
+        email=user.email,
+        role=membership.role,
+        org=OrgSummary.model_validate(org),
+        orgs=_org_summaries(db, user.id),
+    )
 
 
 @router.patch("/org", response_model=OrgSummary)
 def update_org(
     body: UpdateOrgRequest,
-    org: Organization = Depends(require_org),
+    org: Organization = Depends(require_owner),
     db: Session = Depends(get_db),
 ) -> OrgSummary:
     if body.name is not None:
@@ -260,6 +391,160 @@ def update_org(
     db.commit()
     db.refresh(org)
     return OrgSummary.model_validate(org)
+
+
+# --- org members + invites -------------------------------------------------
+
+
+@router.get("/org/members", response_model=list[OrgMemberResponse])
+def list_members(
+    org: Organization = Depends(require_owner), db: Session = Depends(get_db)
+) -> list[OrgMemberResponse]:
+    rows = db.execute(
+        select(User.email, Membership.role)
+        .join(Membership, Membership.user_id == User.id)
+        .where(Membership.org_id == org.id)
+        .order_by(Membership.created_at)
+    ).all()
+    members = {email for email, _ in rows}
+    result = [OrgMemberResponse(email=email, status=role) for email, role in rows]
+    invites = db.scalars(
+        select(OrgInvite).where(OrgInvite.org_id == org.id)
+    ).all()
+    result += [
+        OrgMemberResponse(email=i.email, status="invited")
+        for i in invites
+        if i.email not in members
+    ]
+    return result
+
+
+@router.post(
+    "/org/members",
+    response_model=OrgMemberResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def invite_member(
+    body: OrgMemberRequest,
+    background: BackgroundTasks,
+    org: Organization = Depends(require_owner),
+    db: Session = Depends(get_db),
+) -> OrgMemberResponse:
+    email = _norm(body.email)
+    existing_user = db.scalar(select(User).where(User.email == email))
+    if existing_user is not None and _membership(db, existing_user.id, org.id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="That person is already a member of this organization.",
+        )
+    invite = db.scalar(
+        select(OrgInvite).where(
+            OrgInvite.org_id == org.id, OrgInvite.email == email
+        )
+    )
+    if invite is None:
+        invite = OrgInvite(org_id=org.id, email=email)
+        db.add(invite)
+        db.commit()
+        db.refresh(invite)
+
+    front = settings.FRONTEND_ORIGIN.rstrip("/")
+    accept_url = f"{front}/accept-invite?token={invite.token}"
+    background.add_task(send_invite_email, email, org.name, accept_url)
+    return OrgMemberResponse(email=email, status="invited")
+
+
+@router.delete(
+    "/org/members/{email}", status_code=status.HTTP_204_NO_CONTENT
+)
+def remove_member(
+    email: str,
+    org: Organization = Depends(require_owner),
+    db: Session = Depends(get_db),
+) -> None:
+    email = _norm(email)
+    # Drop any pending invite.
+    invite = db.scalar(
+        select(OrgInvite).where(
+            OrgInvite.org_id == org.id, OrgInvite.email == email
+        )
+    )
+    if invite is not None:
+        db.delete(invite)
+
+    user = db.scalar(select(User).where(User.email == email))
+    if user is not None:
+        membership = _membership(db, user.id, org.id)
+        if membership is not None:
+            if membership.role == "owner":
+                owner_count = (
+                    db.query(Membership)
+                    .filter(
+                        Membership.org_id == org.id, Membership.role == "owner"
+                    )
+                    .count()
+                )
+                if owner_count <= 1:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Cannot remove the organization's only owner.",
+                    )
+            db.delete(membership)
+    db.commit()
+    return None
+
+
+@router.get("/invites/{token}", response_model=InviteInfoResponse)
+def invite_info(token: str, db: Session = Depends(get_db)) -> InviteInfoResponse:
+    invite = db.scalar(select(OrgInvite).where(OrgInvite.token == token))
+    if invite is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Invite not found."
+        )
+    org = db.get(Organization, invite.org_id)
+    user = db.scalar(select(User).where(User.email == invite.email))
+    return InviteInfoResponse(
+        email=invite.email,
+        org_name=org.name if org else "",
+        needs_password=user is None,
+    )
+
+
+@router.post("/invites/{token}/accept", response_model=AuthResponse)
+@limiter.limit(LOGIN_LIMIT)
+def accept_invite(
+    request: Request,
+    token: str,
+    body: AcceptInviteRequest,
+    db: Session = Depends(get_db),
+) -> AuthResponse:
+    invite = db.scalar(select(OrgInvite).where(OrgInvite.token == token))
+    if invite is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Invite not found."
+        )
+    email = _norm(invite.email)
+    user = db.scalar(select(User).where(User.email == email))
+    if user is None:
+        # New account: a password is required.
+        if not body.password or len(body.password) < 8:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="A password of at least 8 characters is required.",
+            )
+        user = User(email=email, password_hash=hash_password(body.password))
+        db.add(user)
+        db.flush()
+
+    membership = _membership(db, user.id, invite.org_id)
+    if membership is None:
+        membership = Membership(
+            user_id=user.id, org_id=invite.org_id, role="member"
+        )
+        db.add(membership)
+    db.delete(invite)
+    db.commit()
+    return _auth_response(db, user, membership)
 
 
 # --- super-admin: premium allowlist ---------------------------------------
@@ -284,11 +569,25 @@ def require_admin(
     return email
 
 
+def _set_plan_for_owned_orgs(db: Session, email: str, plan: str) -> None:
+    """Set the plan on every org the email is an owner of."""
+    user = db.scalar(select(User).where(User.email == email))
+    if user is None:
+        return
+    rows = db.scalars(
+        select(Membership).where(
+            Membership.user_id == user.id, Membership.role == "owner"
+        )
+    ).all()
+    for m in rows:
+        org = db.get(Organization, m.org_id)
+        if org is not None:
+            org.plan = plan
+
+
 @router.post("/auth/admin/login", response_model=TokenResponse)
 @limiter.limit(LOGIN_LIMIT)
 def admin_login(request: Request, body: AdminLoginRequest) -> TokenResponse:
-    import hmac
-
     ok = hmac.compare_digest(
         _norm(body.email), settings.ADMIN_EMAIL.lower()
     ) and hmac.compare_digest(body.password, settings.ADMIN_PASSWORD)
@@ -305,10 +604,7 @@ def list_premium(
     _admin: str = Depends(require_admin), db: Session = Depends(get_db)
 ) -> list[PremiumEmailResponse]:
     rows = db.scalars(select(PremiumEmail).order_by(PremiumEmail.email)).all()
-    result = [
-        PremiumEmailResponse(email=r.email, source="allowlist") for r in rows
-    ]
-    # Surface env-configured premium emails too (read-only).
+    result = [PremiumEmailResponse(email=r.email, source="allowlist") for r in rows]
     db_emails = {r.email for r in rows}
     for e in sorted(settings.premium_email_set):
         if e not in db_emails:
@@ -330,17 +626,11 @@ def add_premium(
     email = _norm(body.email)
     existing = db.scalar(select(PremiumEmail).where(PremiumEmail.email == email))
     if existing is not None:
-        # Idempotent: already on the allowlist -> 200, not 201.
         response.status_code = status.HTTP_200_OK
         return PremiumEmailResponse(email=email, source="allowlist")
 
     db.add(PremiumEmail(email=email))
-    # Promote an existing account immediately.
-    user = db.scalar(select(User).where(User.email == email))
-    if user is not None:
-        org = db.get(Organization, user.org_id)
-        if org is not None:
-            org.plan = "club"
+    _set_plan_for_owned_orgs(db, email, "club")  # promote immediately
     db.commit()
     return PremiumEmailResponse(email=email, source="allowlist")
 
@@ -361,12 +651,7 @@ def remove_premium(
             detail="Email is not on the allowlist.",
         )
     db.delete(row)
-    # Demote unless still premium via the env list.
     if email not in settings.premium_email_set:
-        user = db.scalar(select(User).where(User.email == email))
-        if user is not None:
-            org = db.get(Organization, user.org_id)
-            if org is not None:
-                org.plan = "free"
+        _set_plan_for_owned_orgs(db, email, "free")  # demote
     db.commit()
     return None

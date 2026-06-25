@@ -112,8 +112,16 @@ export default function Register() {
             <p className="mt-2 text-sm text-gray-600">
               Ticket #{state.info.ticket_number} for{" "}
               <span className="font-medium">{state.info.raffle_name}</span> is
-              already entered.
+              registered to:
             </p>
+            <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3 text-left">
+              <p className="font-semibold text-gray-900">
+                {state.info.registrant_name ?? "—"}
+              </p>
+              <p className="text-sm text-gray-600">
+                {state.info.registrant_email ?? ""}
+              </p>
+            </div>
           </div>
         )}
 

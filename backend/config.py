@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     # SQLite default lets the app run locally with zero setup. Production sets
     # DATABASE_URL to the Railway PostgreSQL connection string.
     DATABASE_URL: str = "sqlite:///./raffler.db"
+    DATABASE_CONNECT_TIMEOUT_SECONDS: int = 5
 
     SECRET_KEY: str = _INSECURE_DEFAULT_SECRET
     JWT_ALGORITHM: str = "HS256"
@@ -39,6 +40,14 @@ class Settings(BaseSettings):
     # Comma-separated emails granted the club (premium) plan, in addition to the
     # admin-managed DB allowlist. Self-signup is open to everyone (free tier).
     PREMIUM_EMAILS: str = ""
+
+    # Brevo (transactional email API) for emailing the buyer their ticket PDF on
+    # registration. If BREVO_API_KEY is unset, emailing is silently disabled
+    # (registration still succeeds). The sender email must be a verified Brevo
+    # sender/domain.
+    BREVO_API_KEY: str = ""
+    BREVO_SENDER_EMAIL: str = ""
+    BREVO_SENDER_NAME: str = "Raffler"
 
     # Used to build QR registration URLs. Must be HTTPS in production.
     BASE_URL: str = "http://localhost:5173"
@@ -64,6 +73,10 @@ class Settings(BaseSettings):
     @property
     def google_enabled(self) -> bool:
         return bool(self.GOOGLE_CLIENT_ID and self.GOOGLE_CLIENT_SECRET)
+
+    @property
+    def email_enabled(self) -> bool:
+        return bool(self.BREVO_API_KEY and self.BREVO_SENDER_EMAIL)
 
     @field_validator("SECRET_KEY")
     @classmethod

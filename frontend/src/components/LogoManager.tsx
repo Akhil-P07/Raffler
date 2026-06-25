@@ -10,6 +10,8 @@ import type { RaffleLogo } from "../api/types";
 
 interface Props {
   raffleId: string;
+  /** Called after a logo is added/removed so ticket previews can refresh. */
+  onChange?: () => void;
 }
 
 /**
@@ -17,7 +19,7 @@ interface Props {
  * several organizations, so multiple logos are supported. SVGs are rasterized
  * to PNG in the browser before upload.
  */
-export default function LogoManager({ raffleId }: Props) {
+export default function LogoManager({ raffleId, onChange }: Props) {
   const [logos, setLogos] = useState<RaffleLogo[]>([]);
   const [previews, setPreviews] = useState<Record<string, string>>({});
   const previewsRef = useRef<Record<string, string>>({});
@@ -78,6 +80,7 @@ export default function LogoManager({ raffleId }: Props) {
       setName("");
       if (fileRef.current) fileRef.current.value = "";
       await refresh();
+      onChange?.();
     } catch (err) {
       setError(errorMessage(err, "Could not upload logo."));
     } finally {
@@ -98,6 +101,7 @@ export default function LogoManager({ raffleId }: Props) {
         return rest;
       });
       await refresh();
+      onChange?.();
     } catch (err) {
       setError(errorMessage(err));
     } finally {

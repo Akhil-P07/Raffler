@@ -176,182 +176,197 @@ def _vertical_text(text: str, font) -> Image.Image:
     return img.rotate(90, expand=True)
 
 
-# --- layout constants -----------------------------------------------------
-_W, _H = 940, 300
-_MARGIN, _GAP = 24, 26
-_STUB_W, _SERIAL_W = 150, 56
-_WRITE_IN = "_" * 22  # blank pen write-in line in the stub
-_LOGO_BAND = 70  # extra body height reserved for the logo row when present
-_LOGO_H = 48  # rendered logo height in the band
+# --- layout: a single ~10:11 ticket -------------------------------------
+# The ticket is rendered once at a fixed resolution, then scaled to fit the
+# A4 print grid (or shown as-is in the admin preview), so the on-screen view
+# matches the print exactly.
+_TW = 620
+_TH = round(_TW * 11 / 10)  # 10:11 width:height
+_WRITE_IN = "_" * 26  # blank pen write-in line in the stub
 
 
-def _decode_logos(raw_list: list[bytes]) -> list[Image.Image]:
-    """Decode stored PNG logo bytes into RGBA images scaled to _LOGO_H tall.
-    Bad bytes are skipped rather than failing the whole sheet."""
+def _decode_logos(raw_list: list[bytes], target_h: int) -> list[Image.Image]:
+    """Decode stored PNG logo bytes into RGBA images scaled to target_h tall.
+    Bad bytes are skipped rather than failing the whole ticket."""
     out: list[Image.Image] = []
     for raw in raw_list:
         try:
             img = Image.open(io.BytesIO(raw)).convert("RGBA")
         except Exception:
             continue
-        if img.height != _LOGO_H:
-            scale = _LOGO_H / img.height
-            img = img.resize((max(1, int(img.width * scale)), _LOGO_H))
+        if img.height != target_h:
+            scale = target_h / img.height
+            img = img.resize((max(1, int(img.width * scale)), target_h))
         out.append(img)
     return out
 
 
-def _draw_ticket(
-    sheet: Image.Image,
-    draw: ImageDraw.ImageDraw,
-    ox: int,
-    oy: int,
-    h: int,
-    number: int,
-    token: str,
-    info: TicketSheetInfo,
-    logos: list[Image.Image],
-) -> None:
-    f_stub = _load_font(15)
-    f_org = _load_font(22, bold=True)
-    f_goc = _load_font(13)
-    f_title = _load_font(30, bold=True)
-    f_sub = _load_font(16)
-    f_label = _load_font(14, bold=True)
-    f_body = _load_font(16)
-    f_price = _load_font(24, bold=True)
+def render_ticket(
+    number: int, token: str, info: TicketSheetInfo, logos: list[Image.Image]
+) -> Image.Image:
+    """Render one legally-compliant raffle ticket as a ~10:11 RGB image:
+    logo row → org + GOC id → RAFFLE → prize → drawing → price → QR →
+    'need not be present' statement → perforation → tear-off stub (serial +
+    blank Name/Address/Phone write-in lines)."""
+    img = Image.new("RGB", (_TW, _TH), "white")
+    draw = ImageDraw.Draw(img)
+    draw.rectangle([0, 0, _TW - 1, _TH - 1], outline="black", width=3)
+
+    pad = 22
+    cw = _TW - 2 * pad  # content width
+    cy = pad
+
+    f_org = _load_font(28, bold=True)
+    f_goc = _load_font(14)
+    f_title = _load_font(44, bold=True)
+    f_sub = _load_font(19)
+    f_label = _load_font(16, bold=True)
+    f_body = _load_font(18)
+    f_price = _load_font(26, bold=True)
     f_stmt = _load_font(15, bold=True)
-    f_serial = _load_font(17, bold=True)
-
-    # Outer border.
-    draw.rectangle([ox, oy, ox + _W, oy + h], outline="black", width=2)
-
-    body_x0 = ox + _STUB_W
-    body_x1 = ox + _W - _SERIAL_W
-
-    # Perforation lines (stub | body | serial).
-    for px in (body_x0, body_x1):
-        for yy in range(oy + 6, oy + h - 6, 10):
-            draw.line([px, yy, px, yy + 5], fill="black", width=1)
-
-    # --- left stub: serial + blank write-in columns (filled by hand) ---
-    serial = f"Ticket #{number}"
-    stub_cols = [serial, f"Name: {_WRITE_IN}", f"Address: {_WRITE_IN}", f"Phone: {_WRITE_IN}"]
-    col_w = _STUB_W // len(stub_cols)
-    for i, txt in enumerate(stub_cols):
-        v = _vertical_text(txt, f_stub)
-        cx = ox + i * col_w + (col_w - v.width) // 2
-        cy = oy + (h - v.height) // 2
-        sheet.paste(v, (cx, max(oy + 6, cy)), v)
-
-    # --- right strip: serial number repeated (vertical) ---
-    v = _vertical_text(serial, f_serial)
-    sheet.paste(
-        v,
-        (body_x1 + (_SERIAL_W - v.width) // 2, oy + (h - v.height) // 2),
-        v,
-    )
-
-    # --- body ---
-    bx = body_x0 + 16
-    bw = body_x1 - body_x0 - 32
-
-    # Logo row (co-hosting orgs), centered across the top of the body.
-    if logos:
-        gap = 18
-        total_w = sum(im.width for im in logos) + gap * (len(logos) - 1)
-        lx = body_x0 + (body_x1 - body_x0 - total_w) // 2
-        ly = oy + (_LOGO_BAND - _LOGO_H) // 2
-        for im in logos:
-            sheet.paste(im, (max(body_x0 + 4, lx), ly), im)
-            lx += im.width + gap
-        cy = oy + _LOGO_BAND
-    else:
-        cy = oy + 14
+    f_serial = _load_font(22, bold=True)
+    f_stub = _load_font(17)
 
     def centered(text: str, font, y: int, fill: str = "black") -> int:
         w = draw.textlength(text, font=font)
-        draw.text((body_x0 + (body_x1 - body_x0 - w) / 2, y), text, font=font, fill=fill)
-        return y + (font.size + 6)
+        draw.text(((_TW - w) / 2, y), text, font=font, fill=fill)
+        return y + font.size + 7
+
+    def left(text: str, font, y: int) -> int:
+        draw.text((pad, y), text, font=font, fill="black")
+        return y + font.size + 5
+
+    # Logo row (co-hosting organizations).
+    if logos:
+        gap = 18
+        total = sum(im.width for im in logos) + gap * (len(logos) - 1)
+        lx = max(pad, (_TW - total) // 2)
+        for im in logos:
+            img.paste(im, (lx, cy), im)
+            lx += im.width + gap
+        cy += (logos[0].height if logos else 0) + 10
 
     cy = centered(info.org_name, f_org, cy)
     if info.goc_id:
-        cy = centered(
-            f"*Games of Chance Identification Number {info.goc_id}", f_goc, cy
-        )
-    cy = centered("RAFFLE", f_title, cy + 2)
+        cy = centered(f"GOC ID {info.goc_id}", f_goc, cy)
+    cy = centered("RAFFLE", f_title, cy + 4)
     cy = centered(info.raffle_name, f_sub, cy)
+    cy += 6
 
-    # Two columns: prizes (left) and drawing details (right).
-    col_y = cy + 10
-    left_w = int(bw * 0.5)
-    right_x = bx + left_w + 16
+    # Prize.
+    cy = left("Enter to win:", f_label, cy)
+    for line in _wrap(draw, info.prizes or _WRITE_IN, f_body, cw)[:2]:
+        cy = left(line, f_body, cy)
+    cy += 4
 
-    # Prizes (left)
-    py = col_y
-    draw.text((bx, py), "Enter to win:", font=f_label, fill="black")
-    py += f_label.size + 4
-    prize_lines = _wrap(draw, info.prizes or _WRITE_IN, f_body, left_w)
-    for line in prize_lines[:3]:
-        draw.text((bx, py), line, font=f_body, fill="black")
-        py += f_body.size + 3
-
-    # Drawing details (right)
-    dy = col_y
-    draw.text((right_x, dy), "Drawing held:", font=f_label, fill="black")
-    dy += f_label.size + 4
-    if info.drawing_datetime is not None:
-        draw.text((right_x, dy), _format_date(info.drawing_datetime), font=f_body, fill="black")
-        dy += f_body.size + 3
-        draw.text((right_x, dy), _format_time(info.drawing_datetime), font=f_body, fill="black")
-        dy += f_body.size + 3
-    else:
-        draw.text((right_x, dy), _WRITE_IN, font=f_body, fill="black")
-        dy += f_body.size + 3
-    if info.drawing_location:
-        for line in _wrap(draw, info.drawing_location, f_body, bw - left_w - 16)[:2]:
-            draw.text((right_x, dy), line, font=f_body, fill="black")
-            dy += f_body.size + 3
-
-    # Price (right-aligned, upper area)
+    # Drawing details + price on the same band.
     price = _price_text(info.ticket_price)
     if price:
         pw = draw.textlength(price, font=f_price)
-        draw.text((body_x1 - 16 - pw, col_y - 2), price, font=f_price, fill="black")
+        draw.text((_TW - pad - pw, cy), price, font=f_price, fill="black")
+    cy = left("Drawing held:", f_label, cy)
+    if info.drawing_datetime is not None:
+        when = f"{_format_date(info.drawing_datetime)} · {_format_time(info.drawing_datetime)}"
+    else:
+        when = _WRITE_IN
+    cy = left(when, f_body, cy)
+    if info.drawing_location:
+        for line in _wrap(draw, info.drawing_location, f_body, cw)[:1]:
+            cy = left(line, f_body, cy)
 
-    # QR (bottom-left of body) + caption
-    qr = _qr_image(token, box_size=4, border=1).resize((96, 96))
-    qy = oy + h - 96 - 12
-    sheet.paste(qr, (bx, qy))
-    draw.text((bx + 100, qy + 34), "Scan to register", font=f_body, fill="black")
+    # QR (centered) + caption.
+    qr_size = 150
+    qr = _qr_image(token, box_size=5, border=1).resize((qr_size, qr_size))
+    img.paste(qr, ((_TW - qr_size) // 2, cy + 4))
+    cy += qr_size + 8
+    cy = centered("Scan to register", f_body, cy)
 
-    # "Need not be present" statement (bottom, centered in body)
-    sw = draw.textlength(NOT_PRESENT_STATEMENT, font=f_stmt)
-    draw.text(
-        (body_x0 + (body_x1 - body_x0 - sw) / 2, oy + h - f_stmt.size - 12),
-        NOT_PRESENT_STATEMENT,
-        font=f_stmt,
-        fill="black",
+    # "Need not be present" statement.
+    centered(NOT_PRESENT_STATEMENT, f_stmt, cy)
+
+    # --- tear-off stub at the bottom (horizontal perforation) ---
+    stub_top = _TH - 138
+    for xx in range(pad, _TW - pad, 12):
+        draw.line([xx, stub_top, xx + 6, stub_top], fill="black", width=1)
+    sy = stub_top + 12
+    draw.text((pad, sy), f"Ticket #{number}", font=f_serial, fill="black")
+    sy += f_serial.size + 8
+    for label in ("Name:", "Address:", "Phone:"):
+        draw.text((pad, sy), f"{label} {_WRITE_IN}", font=f_stub, fill="black")
+        sy += f_stub.size + 9
+
+    return img
+
+
+def single_ticket_full_png(number: int, token: str, info: TicketSheetInfo) -> bytes:
+    """One full ticket as PNG (used by the admin on-screen preview)."""
+    logos = _decode_logos(info.logos, target_h=40)
+    buf = io.BytesIO()
+    render_ticket(number, token, info, logos).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def single_ticket_pdf(number: int, token: str, info: TicketSheetInfo) -> bytes:
+    """One full ticket as a single-page PDF (emailed to the buyer)."""
+    logos = _decode_logos(info.logos, target_h=40)
+    buf = io.BytesIO()
+    render_ticket(number, token, info, logos).save(
+        buf, format="PDF", resolution=150.0
     )
+    return buf.getvalue()
 
 
-def print_sheet_png(tickets: list[tuple[int, str]], info: TicketSheetInfo) -> bytes:
-    """Render every (ticket_number, token) as a full compliant ticket, stacked
-    one per row. Returns a single PNG of the whole sheet."""
-    logos = _decode_logos(info.logos)
-    ticket_h = _H + (_LOGO_BAND if logos else 0)
+# --- A4 print sheet (multi-page PDF) -------------------------------------
+# A4 at 150 DPI. A 2x3 grid = 6 tickets per page (kept at 2 columns for
+# legibility); each 10:11 ticket is scaled to fit its cell.
+_A4_W, _A4_H = 1240, 1754
+_SHEET_MARGIN, _CELL_GAP = 48, 24
+_COLUMNS, _ROWS = 2, 3
 
-    count = max(len(tickets), 1)
-    sheet_w = _W + _MARGIN * 2
-    sheet_h = _MARGIN * 2 + count * ticket_h + (count - 1) * _GAP
 
-    sheet = Image.new("RGB", (sheet_w, sheet_h), "white")
-    draw = ImageDraw.Draw(sheet)
+def _grid_cell() -> tuple[int, int]:
+    """Cell size (w, h) for a 10:11 ticket that fits the COLS x ROWS grid."""
+    max_w = (_A4_W - 2 * _SHEET_MARGIN - (_COLUMNS - 1) * _CELL_GAP) // _COLUMNS
+    max_h = (_A4_H - 2 * _SHEET_MARGIN - (_ROWS - 1) * _CELL_GAP) // _ROWS
+    cell_w = min(max_w, round(max_h * 10 / 11))
+    return cell_w, round(cell_w * 11 / 10)
 
+
+def print_sheet_pdf(tickets: list[tuple[int, str]], info: TicketSheetInfo) -> bytes:
+    """Lay every ticket out on A4 pages (2x3 grid) and return a multi-page PDF
+    ready for bulk printing."""
+    logos = _decode_logos(info.logos, target_h=40)
+
+    cell_w, cell_h = _grid_cell()
+    per_page = _COLUMNS * _ROWS
+    # Center the whole grid on the page.
+    grid_w = _COLUMNS * cell_w + (_COLUMNS - 1) * _CELL_GAP
+    grid_h = _ROWS * cell_h + (_ROWS - 1) * _CELL_GAP
+    x0 = (_A4_W - grid_w) // 2
+    y0 = (_A4_H - grid_h) // 2
+
+    pages: list[Image.Image] = []
+    page = None
     for idx, (number, token) in enumerate(tickets):
-        oy = _MARGIN + idx * (ticket_h + _GAP)
-        _draw_ticket(sheet, draw, _MARGIN, oy, ticket_h, number, token, info, logos)
+        slot = idx % per_page
+        if slot == 0:
+            page = Image.new("RGB", (_A4_W, _A4_H), "white")
+            pages.append(page)
+        r, c = divmod(slot, _COLUMNS)
+        x = x0 + c * (cell_w + _CELL_GAP)
+        y = y0 + r * (cell_h + _CELL_GAP)
+        ticket = render_ticket(number, token, info, logos).resize((cell_w, cell_h))
+        page.paste(ticket, (x, y))
+
+    if not pages:
+        pages.append(Image.new("RGB", (_A4_W, _A4_H), "white"))
 
     buf = io.BytesIO()
-    sheet.save(buf, format="PNG")
+    pages[0].save(
+        buf,
+        format="PDF",
+        save_all=True,
+        append_images=pages[1:],
+        resolution=150.0,
+    )
     return buf.getvalue()

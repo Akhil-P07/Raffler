@@ -4,16 +4,22 @@ The seller scans a ticket's QR (which opens /register/{token} in their portal),
 the server confirms the ticket belongs to the seller's own organization, and
 only then accepts the buyer's name + email. There is no public self-service
 registration: that would let anyone with a token register (or hijack) a ticket.
+
+On a successful registration the buyer is emailed a PDF of their ticket (if
+Brevo is configured). A re-scan of a registered ticket shows who it belongs to.
 """
 import re
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from database import Entry, Organization, Raffle, Ticket, get_db
+from database import Entry, Organization, Raffle, RaffleLogo, Ticket, get_db
 from middleware.ownership import require_org
 from schemas import RegisterConfirmation, RegisterInfoResponse, RegisterRequest
+from services.email import send_ticket_email
+from services.qr import TicketSheetInfo, single_ticket_pdf
 
 router = APIRouter(tags=["registration"])
 
@@ -47,6 +53,24 @@ def _resolve_ticket(token: str, db: Session) -> tuple[Ticket, Raffle]:
     return ticket, raffle
 
 
+def _sheet_info(org: Organization, raffle: Raffle, db: Session) -> TicketSheetInfo:
+    logos = db.scalars(
+        select(RaffleLogo)
+        .where(RaffleLogo.raffle_id == raffle.id)
+        .order_by(RaffleLogo.position)
+    ).all()
+    return TicketSheetInfo(
+        org_name=org.name,
+        raffle_name=raffle.name,
+        goc_id=org.goc_id,
+        prizes=raffle.prizes,
+        ticket_price=raffle.ticket_price,
+        drawing_datetime=raffle.drawing_datetime,
+        drawing_location=raffle.drawing_location,
+        logos=[logo.image for logo in logos],
+    )
+
+
 @router.get("/register/{token}", response_model=RegisterInfoResponse)
 def register_info(
     token: str,
@@ -54,15 +78,26 @@ def register_info(
     db: Session = Depends(get_db),
 ) -> RegisterInfoResponse:
     """Resolve a scanned ticket for the logged-in seller. If the ticket isn't
-    theirs, report `owned: false` without leaking the ticket/raffle details."""
+    theirs, report `owned: false` without leaking details. If already
+    registered, include who registered it (name + email)."""
     ticket, raffle = _resolve_ticket(token, db)
     if raffle.org_id != org.id:
         return RegisterInfoResponse(owned=False)
+
+    registrant_name = registrant_email = None
+    if ticket.registered:
+        entry = db.scalar(select(Entry).where(Entry.ticket_id == ticket.id))
+        if entry is not None:
+            registrant_name = entry.name
+            registrant_email = entry.email
+
     return RegisterInfoResponse(
         owned=True,
         ticket_number=ticket.ticket_number,
         raffle_name=raffle.name,
         registered=ticket.registered,
+        registrant_name=registrant_name,
+        registrant_email=registrant_email,
     )
 
 
@@ -74,6 +109,7 @@ def register_info(
 def register(
     token: str,
     body: RegisterRequest,
+    background: BackgroundTasks,
     org: Organization = Depends(require_org),
     db: Session = Depends(get_db),
 ) -> RegisterConfirmation:
@@ -113,6 +149,19 @@ def register(
             status_code=status.HTTP_409_CONFLICT,
             detail="This ticket is already registered.",
         )
+
+    # Email the buyer their ticket PDF (no-op if Brevo isn't configured).
+    pdf = single_ticket_pdf(
+        ticket.ticket_number, ticket.token, _sheet_info(org, raffle, db)
+    )
+    background.add_task(
+        send_ticket_email,
+        str(body.email),
+        entry.name,
+        raffle.name,
+        ticket.ticket_number,
+        pdf,
+    )
 
     return RegisterConfirmation(
         ticket_number=ticket.ticket_number,

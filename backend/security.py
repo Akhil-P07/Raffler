@@ -56,10 +56,18 @@ def _encode(payload: dict[str, Any], expires_delta: timedelta) -> tuple[str, int
     return token, int(expires_delta.total_seconds())
 
 
-def create_session_token(user_id: str, email: str, org_id: str) -> tuple[str, int]:
+def create_session_token(
+    user_id: str, email: str, org_id: str, role: str
+) -> tuple[str, int]:
     """Session token for a logged-in user. Returns (token, expires_in_seconds)."""
     return _encode(
-        {"typ": "session", "sub": user_id, "email": email, "org_id": org_id},
+        {
+            "typ": "session",
+            "sub": user_id,
+            "email": email,
+            "org_id": org_id,
+            "role": role,
+        },
         timedelta(minutes=settings.SESSION_TOKEN_EXPIRE_MINUTES),
     )
 

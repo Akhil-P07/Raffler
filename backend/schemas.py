@@ -50,14 +50,27 @@ class OrgSummary(BaseModel):
     goc_id: str | None
 
 
+class OrgMembershipSummary(BaseModel):
+    """An org the user belongs to, with their role in it (for the switcher)."""
+
+    id: str
+    name: str
+    plan: str
+    goc_id: str | None
+    role: str  # 'owner' | 'member'
+
+
 class AuthResponse(BaseModel):
-    """Returned by register/login — a session token plus the account context."""
+    """Returned by register/login/select-org — a session token scoped to the
+    currently-selected org, plus the full list of orgs the user belongs to."""
 
     access_token: str
     token_type: str = "bearer"
     expires_in: int  # seconds
     email: EmailStr
-    org: OrgSummary
+    role: str  # role in the current org
+    org: OrgSummary  # current org
+    orgs: list[OrgMembershipSummary]
 
 
 class TokenResponse(BaseModel):
@@ -68,9 +81,37 @@ class TokenResponse(BaseModel):
     expires_in: int
 
 
+class SelectOrgRequest(BaseModel):
+    org_id: str
+
+
 class MeResponse(BaseModel):
     email: EmailStr
+    role: str  # role in the current org
     org: OrgSummary
+    orgs: list[OrgMembershipSummary]
+
+
+class OrgMemberRequest(BaseModel):
+    email: EmailStr
+
+
+class OrgMemberResponse(BaseModel):
+    email: EmailStr
+    # 'owner' | 'member' (an existing account) or 'invited' (pending signup).
+    status: str
+
+
+class InviteInfoResponse(BaseModel):
+    email: EmailStr
+    org_name: str
+    needs_password: bool  # true when the email has no account yet
+
+
+class AcceptInviteRequest(BaseModel):
+    # Required only when creating a new account (needs_password); ignored for an
+    # existing account (the emailed token proves email control).
+    password: str | None = Field(default=None, max_length=128)
 
 
 class UpdateOrgRequest(BaseModel):
@@ -241,12 +282,16 @@ class GenerateTicketsResponse(BaseModel):
 class RegisterInfoResponse(BaseModel):
     """Returned by GET /register/{token} to a logged-in seller. `owned` says
     whether the ticket belongs to the seller's own org; ticket/raffle details
-    are only included when owned (a ticket from another org reveals nothing)."""
+    are only included when owned (a ticket from another org reveals nothing).
+    When already registered, the registrant's name + email are returned so a
+    re-scan shows who the ticket belongs to."""
 
     owned: bool
     ticket_number: int | None = None
     raffle_name: str | None = None
     registered: bool | None = None
+    registrant_name: str | None = None
+    registrant_email: str | None = None
 
 
 class RegisterRequest(BaseModel):

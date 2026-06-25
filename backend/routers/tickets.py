@@ -17,11 +17,35 @@ from schemas import (
     TicketResponse,
 )
 from services.limits import enforce_ticket_limit
-from services.qr import TicketSheetInfo, print_sheet_png, single_ticket_png
+from services.qr import (
+    TicketSheetInfo,
+    print_sheet_pdf,
+    single_ticket_full_png,
+    single_ticket_png,
+)
 
 router = APIRouter(tags=["tickets"])
 
 TOKEN_BYTES = 24  # token_urlsafe(24) -> 32-char URL-safe string
+
+
+def _sheet_info(org: Organization, raffle, db: Session) -> TicketSheetInfo:
+    """Build the per-raffle ticket-face context, including co-host logos."""
+    logos = db.scalars(
+        select(RaffleLogo)
+        .where(RaffleLogo.raffle_id == raffle.id)
+        .order_by(RaffleLogo.position)
+    ).all()
+    return TicketSheetInfo(
+        org_name=org.name,
+        raffle_name=raffle.name,
+        goc_id=org.goc_id,
+        prizes=raffle.prizes,
+        ticket_price=raffle.ticket_price,
+        drawing_datetime=raffle.drawing_datetime,
+        drawing_location=raffle.drawing_location,
+        logos=[logo.image for logo in logos],
+    )
 
 
 @router.post(
@@ -84,44 +108,53 @@ def list_tickets(
 @router.get(
     "/raffles/{raffle_id}/tickets/sheet",
     response_class=Response,
-    responses={200: {"content": {"image/png": {}}, "description": "Print sheet PNG"}},
+    responses={
+        200: {"content": {"application/pdf": {}}, "description": "A4 print PDF"}
+    },
 )
 def ticket_sheet(
     raffle_id: str,
     org: Organization = Depends(require_org),
     db: Session = Depends(get_db),
 ) -> Response:
+    """A4 print sheet (6 tickets per page) as a PDF, ready for bulk printing."""
     raffle = get_owned_raffle(raffle_id, org, db)
     tickets = db.scalars(
         select(Ticket)
         .where(Ticket.raffle_id == raffle.id)
         .order_by(Ticket.ticket_number)
     ).all()
-    logos = db.scalars(
-        select(RaffleLogo)
-        .where(RaffleLogo.raffle_id == raffle.id)
-        .order_by(RaffleLogo.position)
-    ).all()
-    info = TicketSheetInfo(
-        org_name=org.name,
-        raffle_name=raffle.name,
-        goc_id=org.goc_id,
-        prizes=raffle.prizes,
-        ticket_price=raffle.ticket_price,
-        drawing_datetime=raffle.drawing_datetime,
-        drawing_location=raffle.drawing_location,
-        logos=[logo.image for logo in logos],
-    )
-    png = print_sheet_png([(t.ticket_number, t.token) for t in tickets], info)
+    info = _sheet_info(org, raffle, db)
+    pdf = print_sheet_pdf([(t.ticket_number, t.token) for t in tickets], info)
     return Response(
-        content=png,
-        media_type="image/png",
+        content=pdf,
+        media_type="application/pdf",
         headers={
             "Content-Disposition": (
-                f'inline; filename="raffle-{raffle.id}-sheet.png"'
+                f'attachment; filename="raffle-{raffle.id}-tickets.pdf"'
             )
         },
     )
+
+
+@router.get(
+    "/tickets/{ticket_id}/preview",
+    response_class=Response,
+    responses={
+        200: {"content": {"image/png": {}}, "description": "Full ticket preview PNG"}
+    },
+)
+def ticket_preview(
+    ticket_id: str,
+    org: Organization = Depends(require_org),
+    db: Session = Depends(get_db),
+) -> Response:
+    """The full ticket as it will print (10:11), for the admin on-screen view."""
+    ticket = get_owned_ticket(ticket_id, org, db)
+    raffle = get_owned_raffle(ticket.raffle_id, org, db)
+    info = _sheet_info(org, raffle, db)
+    png = single_ticket_full_png(ticket.ticket_number, ticket.token, info)
+    return Response(content=png, media_type="image/png")
 
 
 @router.get(

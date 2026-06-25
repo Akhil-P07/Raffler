@@ -103,6 +103,8 @@ export interface RegisterInfo {
   ticket_number: number | null;
   raffle_name: string | null;
   registered: boolean | null;
+  registrant_name: string | null;
+  registrant_email: string | null;
 }
 
 export interface RegisterConfirmation {

@@ -148,19 +148,19 @@ export async function listTickets(raffleId: string): Promise<Ticket[]> {
 }
 
 /**
- * Fetch a single ticket's QR PNG as an object URL. Needed because a plain
- * <img src> can't attach the X-API-Key header — these endpoints are
- * ownership-checked, so we fetch the bytes authenticated and wrap them.
+ * Fetch a single ticket's full preview (the exact 10:11 design that prints) as
+ * an object URL. The endpoint is ownership-checked, so a plain <img src> can't
+ * attach the auth header — we fetch the bytes authenticated and wrap them.
  * Caller is responsible for URL.revokeObjectURL when done.
  */
-export async function fetchQrObjectUrl(ticketId: string): Promise<string> {
-  const res = await authed.get(`/tickets/${ticketId}/qr`, {
+export async function fetchTicketPreviewUrl(ticketId: string): Promise<string> {
+  const res = await authed.get(`/tickets/${ticketId}/preview`, {
     responseType: "blob",
   });
   return URL.createObjectURL(res.data as Blob);
 }
 
-/** Fetch the server-rendered print sheet PNG and trigger a download. */
+/** Fetch the A4 print-sheet PDF (6 tickets/page) and trigger a download. */
 export async function downloadTicketSheet(
   raffleId: string,
   raffleName: string
@@ -171,7 +171,7 @@ export async function downloadTicketSheet(
   const url = URL.createObjectURL(res.data as Blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `${raffleName.replace(/[^a-z0-9]+/gi, "-")}-print-sheet.png`;
+  a.download = `${raffleName.replace(/[^a-z0-9]+/gi, "-")}-tickets.pdf`;
   a.click();
   URL.revokeObjectURL(url);
 }

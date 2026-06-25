@@ -4,6 +4,7 @@ The schema mirrors the SQL in the spec exactly: organizations → raffles →
 tickets → entries, plus an immutable winners table. UUIDs are stored as TEXT
 so the same models work on PostgreSQL (production) and SQLite (local dev).
 """
+import secrets
 import uuid
 from datetime import datetime
 
@@ -44,9 +45,11 @@ def _normalize_db_url(url: str) -> str:
 DATABASE_URL = _normalize_db_url(settings.DATABASE_URL)
 
 # check_same_thread is a SQLite-only knob; it would error on PostgreSQL.
-_connect_args = (
-    {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
-)
+_connect_args = {}
+if DATABASE_URL.startswith("sqlite"):
+    _connect_args = {"check_same_thread": False}
+elif DATABASE_URL.startswith("postgresql"):
+    _connect_args = {"connect_timeout": settings.DATABASE_CONNECT_TIMEOUT_SECONDS}
 
 engine = create_engine(DATABASE_URL, connect_args=_connect_args, pool_pre_ping=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -66,13 +69,17 @@ def _uuid() -> str:
     return str(uuid.uuid4())
 
 
+def _invite_token() -> str:
+    return secrets.token_urlsafe(24)
+
+
 class Base(DeclarativeBase):
     pass
 
 
 class Organization(Base):
-    """A tenant. Each user account owns exactly one organization, whose name +
-    Games-of-Chance ID appear on its raffle tickets."""
+    """A tenant whose name + Games-of-Chance ID appear on its raffle tickets.
+    Users join orgs through Membership rows — a user can belong to several."""
 
     __tablename__ = "organizations"
 
@@ -86,8 +93,11 @@ class Organization(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
-    user: Mapped["User"] = relationship(
-        back_populates="org", cascade="all, delete-orphan", uselist=False
+    memberships: Mapped[list["Membership"]] = relationship(
+        back_populates="org", cascade="all, delete-orphan", passive_deletes=True
+    )
+    invites: Mapped[list["OrgInvite"]] = relationship(
+        back_populates="org", cascade="all, delete-orphan", passive_deletes=True
     )
     # passive_deletes lets the DB's ON DELETE CASCADE own the cascade rather
     # than SQLAlchemy emitting its own child DELETEs.
@@ -97,8 +107,9 @@ class Organization(Base):
 
 
 class User(Base):
-    """A login identity. Created by self-signup (email+password or Google).
-    Owns one organization. There are no API keys — all access is session-based.
+    """A login identity (email + optional password / Google). A user can belong
+    to multiple organizations via Membership; the session token names which org
+    is currently selected. There are no API keys — all access is session-based.
     """
 
     __tablename__ = "users"
@@ -109,14 +120,67 @@ class User(Base):
     password_hash: Mapped[str | None] = mapped_column(String, nullable=True)
     # Google "sub" claim, set when the account is linked to Google sign-in.
     google_sub: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    memberships: Mapped[list["Membership"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan", passive_deletes=True
+    )
+
+
+class Membership(Base):
+    """A user's role in an organization. A user can have many; an org can have
+    many. 'owner' can manage members; 'member' shares the org's raffles."""
+
+    __tablename__ = "memberships"
+    __table_args__ = (
+        UniqueConstraint("user_id", "org_id", name="uq_membership"),
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(
+        String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    org_id: Mapped[str] = mapped_column(
+        String,
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    role: Mapped[str] = mapped_column(String, default="owner", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    user: Mapped["User"] = relationship(back_populates="memberships")
+    org: Mapped["Organization"] = relationship(back_populates="memberships")
+
+
+class OrgInvite(Base):
+    """An email invited to join an organization. Accepting (via the emailed
+    link) creates a Membership — a new account if the email has none yet, or an
+    added org if it already does."""
+
+    __tablename__ = "org_invites"
+    __table_args__ = (
+        UniqueConstraint("org_id", "email", name="uq_org_invite"),
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     org_id: Mapped[str] = mapped_column(
         String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+    email: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    # Unguessable token in the emailed accept link.
+    token: Mapped[str] = mapped_column(
+        String, unique=True, nullable=False, default=_invite_token
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
-    org: Mapped["Organization"] = relationship(back_populates="user")
+    org: Mapped["Organization"] = relationship(back_populates="invites")
 
 
 class PremiumEmail(Base):
