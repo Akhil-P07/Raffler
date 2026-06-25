@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from database import Entry, Organization, Raffle, Ticket, Winner, get_db
-from middleware.ownership import get_owned_raffle, require_org
+from middleware.ownership import get_owned_raffle, require_org, require_owner
 from middleware.rate_limit import DRAW_LIMIT, limiter
 from schemas import DrawRequest, DrawResponse, WinnerResponse
 from services.rng import audit_token, select_winners
@@ -50,7 +50,7 @@ def draw(
     request: Request,
     raffle_id: str,
     body: DrawRequest | None = None,
-    org: Organization = Depends(require_org),
+    org: Organization = Depends(require_owner),
     db: Session = Depends(get_db),
 ) -> DrawResponse:
     # Ownership first (404 on miss), then re-load the row under a lock so a

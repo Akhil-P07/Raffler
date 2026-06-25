@@ -8,6 +8,7 @@ club plan to the orgs an allowlisted email owns. No API keys — all
 session-based.
 """
 import hmac
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import (
@@ -33,7 +34,7 @@ from database import (
     User,
     get_db,
 )
-from middleware.ownership import get_session
+from middleware.ownership import get_session, require_owner
 from middleware.rate_limit import LOGIN_LIMIT, limiter
 from schemas import (
     AcceptInviteRequest,
@@ -77,12 +78,24 @@ _DUMMY_HASH = hash_password("not-a-real-password-placeholder")
 
 _OAUTH_STATE_COOKIE = "raffler_oauth_state"
 
+# Invites expire so a forwarded accept link can't be redeemed indefinitely.
+_INVITE_TTL = timedelta(days=7)
+
 
 # --- helpers --------------------------------------------------------------
 
 
 def _norm(email: str) -> str:
     return email.strip().lower()
+
+
+def _invite_expired(invite: OrgInvite) -> bool:
+    created = invite.created_at
+    if created is None:
+        return False
+    if created.tzinfo is None:  # SQLite stores naive timestamps
+        created = created.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc) - created > _INVITE_TTL
 
 
 def _is_premium(db: Session, email: str) -> bool:
@@ -343,23 +356,6 @@ def google_callback(
 # --- current account / org ------------------------------------------------
 
 
-def require_owner(
-    claims: dict[str, Any] = Depends(get_session),
-    db: Session = Depends(get_db),
-) -> Organization:
-    """The current org, requiring the session user to be its owner."""
-    membership = _membership(db, claims["sub"], claims["org_id"])
-    if membership is None or membership.role != "owner":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Owner access required.",
-        )
-    org = db.get(Organization, claims["org_id"])
-    if org is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
-    return org
-
-
 @router.get("/me", response_model=MeResponse)
 def me(
     claims: dict[str, Any] = Depends(get_session),
@@ -497,9 +493,10 @@ def remove_member(
 @router.get("/invites/{token}", response_model=InviteInfoResponse)
 def invite_info(token: str, db: Session = Depends(get_db)) -> InviteInfoResponse:
     invite = db.scalar(select(OrgInvite).where(OrgInvite.token == token))
-    if invite is None:
+    if invite is None or _invite_expired(invite):
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Invite not found."
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invite not found or expired.",
         )
     org = db.get(Organization, invite.org_id)
     user = db.scalar(select(User).where(User.email == invite.email))
@@ -519,9 +516,10 @@ def accept_invite(
     db: Session = Depends(get_db),
 ) -> AuthResponse:
     invite = db.scalar(select(OrgInvite).where(OrgInvite.token == token))
-    if invite is None:
+    if invite is None or _invite_expired(invite):
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Invite not found."
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invite not found or expired.",
         )
     email = _norm(invite.email)
     user = db.scalar(select(User).where(User.email == email))

@@ -4,6 +4,7 @@ import EntryTable from "../components/EntryTable";
 import WinnerModal from "../components/WinnerModal";
 import {
   deleteRaffle,
+  deregisterEntries,
   downloadEntriesCsv,
   drawRaffle,
   errorMessage,
@@ -13,6 +14,7 @@ import {
   listWinners,
   updateRaffle,
 } from "../api/client";
+import { isOwner, useMe } from "../auth/MeContext";
 import type { Entry, Raffle, RaffleDetail, Winner } from "../api/types";
 
 const STATUS_STYLES: Record<string, string> = {
@@ -23,6 +25,8 @@ const STATUS_STYLES: Record<string, string> = {
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
+  const { me } = useMe();
+  const owner = isOwner(me);
   const [raffles, setRaffles] = useState<Raffle[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<RaffleDetail | null>(null);
@@ -96,6 +100,16 @@ export default function AdminDashboard() {
     }
   }
 
+  async function onDeregister(entryIds: string[]) {
+    if (!detail) return;
+    try {
+      await deregisterEntries(detail.id, entryIds);
+      await Promise.all([selectRaffle(detail.id), loadRaffles()]);
+    } catch (err) {
+      setError(errorMessage(err, "Could not deregister."));
+    }
+  }
+
   async function onDelete() {
     if (!detail) return;
     if (
@@ -118,13 +132,15 @@ export default function AdminDashboard() {
     <div className="mx-auto max-w-6xl px-4 py-8">
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Raffles</h1>
-        <button
-          type="button"
-          onClick={() => navigate("/raffles/new")}
-          className="rounded-lg bg-brand px-4 py-2 font-semibold text-white hover:bg-brand-dark"
-        >
-          + New raffle
-        </button>
+        {owner && (
+          <button
+            type="button"
+            onClick={() => navigate("/raffles/new")}
+            className="rounded-lg bg-brand px-4 py-2 font-semibold text-white hover:bg-brand-dark"
+          >
+            + New raffle
+          </button>
+        )}
       </div>
 
       {error && (
@@ -188,13 +204,15 @@ export default function AdminDashboard() {
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => navigate(`/raffles/${detail.id}/tickets`)}
-                    className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50"
-                  >
-                    Tickets
-                  </button>
+                  {owner && (
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/raffles/${detail.id}/tickets`)}
+                      className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                    >
+                      Tickets
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() =>
@@ -207,23 +225,27 @@ export default function AdminDashboard() {
                   >
                     Export CSV
                   </button>
-                  {detail.status !== "drawn" && winners.length === 0 && (
+                  {owner &&
+                    detail.status !== "drawn" &&
+                    winners.length === 0 && (
+                      <button
+                        type="button"
+                        onClick={onClose}
+                        disabled={detail.status === "closed"}
+                        className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                      >
+                        Close
+                      </button>
+                    )}
+                  {owner && (
                     <button
                       type="button"
-                      onClick={onClose}
-                      disabled={detail.status === "closed"}
-                      className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                      onClick={onDelete}
+                      className="rounded-lg border border-red-200 px-3 py-1.5 text-sm font-semibold text-red-600 hover:bg-red-50"
                     >
-                      Close
+                      Delete
                     </button>
                   )}
-                  <button
-                    type="button"
-                    onClick={onDelete}
-                    className="rounded-lg border border-red-200 px-3 py-1.5 text-sm font-semibold text-red-600 hover:bg-red-50"
-                  >
-                    Delete
-                  </button>
                 </div>
               </div>
 
@@ -250,7 +272,7 @@ export default function AdminDashboard() {
                       View winners
                     </button>
                   </div>
-                ) : (
+                ) : owner ? (
                   <div className="flex flex-wrap items-end gap-3">
                     <div>
                       <label
@@ -283,13 +305,21 @@ export default function AdminDashboard() {
                       {busy ? "Drawing…" : "Draw winner"}
                     </button>
                   </div>
+                ) : (
+                  <p className="text-sm text-gray-500">
+                    Not yet drawn. Only an owner can run the draw.
+                  </p>
                 )}
               </div>
 
               {/* Entries */}
               <div className="rounded-xl bg-white p-4 shadow">
                 <h3 className="mb-3 font-semibold text-gray-900">Entries</h3>
-                <EntryTable entries={entries} />
+                <EntryTable
+                  entries={entries}
+                  selectable={owner && detail.status !== "drawn"}
+                  onDeregister={onDeregister}
+                />
               </div>
             </div>
           )}

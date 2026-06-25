@@ -185,7 +185,7 @@ class TestQRAndSheet:
             assert token in url
             assert f"/register/{token}" in url
 
-    def test_print_sheet_returns_png(self, client, free_org):
+    def test_print_sheet_returns_pdf(self, client, free_org):
         raffle_id = create_raffle(client, free_org["headers"])
         generate_tickets(client, free_org["headers"], raffle_id, count=3)
 
@@ -194,8 +194,8 @@ class TestQRAndSheet:
             headers=free_org["headers"],
         )
         assert resp.status_code == 200
-        assert resp.headers["content-type"] == "image/png"
-        assert resp.content[:4] == PNG_MAGIC
+        assert resp.headers["content-type"] == "application/pdf"
+        assert resp.content[:4] == b"%PDF"
 
     def test_sheet_uses_token_from_same_row_as_ticket_number(
         self, client, app_and_db, free_org

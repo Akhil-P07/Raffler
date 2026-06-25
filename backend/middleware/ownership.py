@@ -16,13 +16,17 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from database import Entry, Organization, Raffle, Ticket, get_db
+from database import Entry, Membership, Organization, Raffle, Ticket, get_db
 from security import decode_session_token
 
 _INVALID_SESSION = HTTPException(
     status_code=status.HTTP_401_UNAUTHORIZED,
     detail="Not authenticated.",
     headers={"WWW-Authenticate": "Bearer"},
+)
+
+_OWNER_ONLY = HTTPException(
+    status_code=status.HTTP_403_FORBIDDEN, detail="Owner access required."
 )
 
 # Reused for every ownership miss so existence is indistinguishable from
@@ -54,11 +58,39 @@ def get_session(
     return claims
 
 
+def _current_membership(claims: dict[str, Any], db: Session) -> Membership | None:
+    return db.scalar(
+        select(Membership).where(
+            Membership.user_id == claims.get("sub"),
+            Membership.org_id == claims.get("org_id"),
+        )
+    )
+
+
 def require_org(
     claims: dict[str, Any] = Depends(get_session),
     db: Session = Depends(get_db),
 ) -> Organization:
-    """Resolve the logged-in user's organization from their session."""
+    """Resolve the selected org and confirm the session user is still a member
+    of it (an owner-removed member's old token stops working immediately)."""
+    if _current_membership(claims, db) is None:
+        raise _INVALID_SESSION
+    org = db.get(Organization, claims.get("org_id"))
+    if org is None:
+        raise _INVALID_SESSION
+    return org
+
+
+def require_owner(
+    claims: dict[str, Any] = Depends(get_session),
+    db: Session = Depends(get_db),
+) -> Organization:
+    """Like require_org but the session user must be an OWNER of the selected
+    org. Used for ticket QR/print/generation, member management, and
+    deregistration — actions an invited member must not perform."""
+    membership = _current_membership(claims, db)
+    if membership is None or membership.role != "owner":
+        raise _OWNER_ONLY
     org = db.get(Organization, claims.get("org_id"))
     if org is None:
         raise _INVALID_SESSION

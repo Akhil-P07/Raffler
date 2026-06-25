@@ -329,6 +329,16 @@ class EntryResponse(BaseModel):
     registered_at: datetime
 
 
+class DeregisterRequest(BaseModel):
+    """Owner-only bulk undo of registrations (system-failure recovery)."""
+
+    entry_ids: list[str] = Field(min_length=1, max_length=10_000)
+
+
+class DeregisterResponse(BaseModel):
+    deregistered: int
+
+
 # ---------------------------------------------------------------------------
 # Draw / winners
 # ---------------------------------------------------------------------------

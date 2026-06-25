@@ -1,14 +1,14 @@
-"""Entry listing and CSV export (for offline use / backups)."""
+"""Entry listing, CSV export, and owner-only deregistration."""
 import csv
 import io
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from database import Entry, Organization, Ticket, get_db
-from middleware.ownership import get_owned_raffle, require_org
-from schemas import EntryResponse
+from middleware.ownership import get_owned_raffle, require_org, require_owner
+from schemas import DeregisterRequest, DeregisterResponse, EntryResponse
 
 router = APIRouter(tags=["entries"])
 
@@ -84,3 +84,40 @@ def export_entries(
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.post(
+    "/raffles/{raffle_id}/entries/deregister",
+    response_model=DeregisterResponse,
+)
+def deregister_entries(
+    raffle_id: str,
+    body: DeregisterRequest,
+    org: Organization = Depends(require_owner),
+    db: Session = Depends(get_db),
+) -> DeregisterResponse:
+    """Owner-only: delete the selected entries and free their tickets so they
+    can be registered again (recovery for when something goes wrong). Blocked
+    once the raffle is drawn, to protect the recorded result."""
+    raffle = get_owned_raffle(raffle_id, org, db)
+    if raffle.status == "drawn":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot deregister tickets after the raffle has been drawn.",
+        )
+
+    count = 0
+    for entry_id in set(body.entry_ids):
+        entry = db.get(Entry, entry_id)
+        # Only touch entries that belong to this raffle (ownership already
+        # confirmed on the raffle).
+        if entry is None or entry.raffle_id != raffle.id:
+            continue
+        ticket = db.get(Ticket, entry.ticket_id)
+        if ticket is not None:
+            ticket.registered = False
+        db.delete(entry)
+        count += 1
+
+    db.commit()
+    return DeregisterResponse(deregistered=count)

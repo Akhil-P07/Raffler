@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from config import settings
 from database import Entry, Organization, Raffle, RaffleLogo, Ticket, get_db
 from middleware.ownership import require_org
 from schemas import RegisterConfirmation, RegisterInfoResponse, RegisterRequest
@@ -150,18 +151,19 @@ def register(
             detail="This ticket is already registered.",
         )
 
-    # Email the buyer their ticket PDF (no-op if Brevo isn't configured).
-    pdf = single_ticket_pdf(
-        ticket.ticket_number, ticket.token, _sheet_info(org, raffle, db)
-    )
-    background.add_task(
-        send_ticket_email,
-        str(body.email),
-        entry.name,
-        raffle.name,
-        ticket.ticket_number,
-        pdf,
-    )
+    # Email the buyer their ticket PDF (only render it when email is enabled).
+    if settings.email_enabled:
+        pdf = single_ticket_pdf(
+            ticket.ticket_number, ticket.token, _sheet_info(org, raffle, db)
+        )
+        background.add_task(
+            send_ticket_email,
+            str(body.email),
+            entry.name,
+            raffle.name,
+            ticket.ticket_number,
+            pdf,
+        )
 
     return RegisterConfirmation(
         ticket_number=ticket.ticket_number,

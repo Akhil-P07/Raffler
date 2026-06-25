@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from database import Organization, RaffleLogo, Ticket, get_db
-from middleware.ownership import get_owned_raffle, get_owned_ticket, require_org
+from middleware.ownership import get_owned_raffle, get_owned_ticket, require_owner
 from schemas import (
     GenerateTicketsRequest,
     GenerateTicketsResponse,
@@ -56,7 +56,7 @@ def _sheet_info(org: Organization, raffle, db: Session) -> TicketSheetInfo:
 def generate_tickets(
     raffle_id: str,
     body: GenerateTicketsRequest,
-    org: Organization = Depends(require_org),
+    org: Organization = Depends(require_owner),
     db: Session = Depends(get_db),
 ) -> GenerateTicketsResponse:
     raffle = get_owned_raffle(raffle_id, org, db)
@@ -93,7 +93,7 @@ def generate_tickets(
 @router.get("/raffles/{raffle_id}/tickets", response_model=list[TicketResponse])
 def list_tickets(
     raffle_id: str,
-    org: Organization = Depends(require_org),
+    org: Organization = Depends(require_owner),
     db: Session = Depends(get_db),
 ) -> list[TicketResponse]:
     raffle = get_owned_raffle(raffle_id, org, db)
@@ -114,7 +114,7 @@ def list_tickets(
 )
 def ticket_sheet(
     raffle_id: str,
-    org: Organization = Depends(require_org),
+    org: Organization = Depends(require_owner),
     db: Session = Depends(get_db),
 ) -> Response:
     """A4 print sheet (6 tickets per page) as a PDF, ready for bulk printing."""
@@ -146,7 +146,7 @@ def ticket_sheet(
 )
 def ticket_preview(
     ticket_id: str,
-    org: Organization = Depends(require_org),
+    org: Organization = Depends(require_owner),
     db: Session = Depends(get_db),
 ) -> Response:
     """The full ticket as it will print (10:11), for the admin on-screen view."""
@@ -164,7 +164,7 @@ def ticket_preview(
 )
 def ticket_qr(
     ticket_id: str,
-    org: Organization = Depends(require_org),
+    org: Organization = Depends(require_owner),
     db: Session = Depends(get_db),
 ) -> Response:
     ticket = get_owned_ticket(ticket_id, org, db)

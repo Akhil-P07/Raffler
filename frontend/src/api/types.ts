@@ -5,6 +5,8 @@ export type RaffleStatus = "active" | "closed" | "drawn";
 
 // --- Auth ---
 
+export type Role = "owner" | "member";
+
 export interface OrgSummary {
   id: string;
   name: string;
@@ -12,17 +14,36 @@ export interface OrgSummary {
   goc_id: string | null;
 }
 
+export interface OrgMembershipSummary extends OrgSummary {
+  role: Role;
+}
+
 export interface AuthResponse {
   access_token: string;
   token_type: string;
   expires_in: number;
   email: string;
+  role: Role;
   org: OrgSummary;
+  orgs: OrgMembershipSummary[];
 }
 
 export interface Me {
   email: string;
+  role: Role;
   org: OrgSummary;
+  orgs: OrgMembershipSummary[];
+}
+
+export interface OrgMember {
+  email: string;
+  status: string; // 'owner' | 'member' | 'invited'
+}
+
+export interface InviteInfo {
+  email: string;
+  org_name: string;
+  needs_password: boolean;
 }
 
 export interface Raffle {

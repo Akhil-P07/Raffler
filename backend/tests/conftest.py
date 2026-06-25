@@ -168,6 +168,39 @@ def org_b(client):
     return signup(client, "orgb@test.example", org_name="Org B")
 
 
+def invite_and_accept(client, app_and_db, owner_headers, email, password="memberpass1"):
+    """Owner invites `email`; the invite is accepted (new account). Returns the
+    member's session headers + auth data."""
+    _, database_mod = app_and_db
+    resp = client.post("/org/members", json={"email": email}, headers=owner_headers)
+    assert resp.status_code == 201, resp.text
+    s = database_mod.SessionLocal()
+    try:
+        invite = (
+            s.query(database_mod.OrgInvite)
+            .filter(database_mod.OrgInvite.email == email.lower())
+            .first()
+        )
+        token = invite.token
+    finally:
+        s.close()
+    resp = client.post(f"/invites/{token}/accept", json={"password": password})
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    return {
+        "email": data["email"],
+        "role": data["role"],
+        "token": data["access_token"],
+        "headers": {"Authorization": f"Bearer {data['access_token']}"},
+    }
+
+
+@pytest.fixture()
+def member_of_free(client, app_and_db, free_org):
+    """A member (not owner) of free_org."""
+    return invite_and_accept(client, app_and_db, free_org["headers"], "member@test.example")
+
+
 # ---------------------------------------------------------------------------
 # Raffle + ticket helpers
 # ---------------------------------------------------------------------------

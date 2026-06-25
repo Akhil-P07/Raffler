@@ -4,7 +4,9 @@ import type {
   DrawResponse,
   Entry,
   GenerateTicketsResponse,
+  InviteInfo,
   Me,
+  OrgMember,
   OrgSummary,
   Raffle,
   RaffleDetail,
@@ -98,6 +100,45 @@ export async function updateOrg(body: {
   goc_id?: string | null;
 }): Promise<OrgSummary> {
   return (await authed.patch<OrgSummary>("/org", body)).data;
+}
+
+/** Switch the session to another org the user belongs to; stores the new token. */
+export async function selectOrg(orgId: string): Promise<AuthResponse> {
+  const res = (await authed.post<AuthResponse>("/auth/select-org", { org_id: orgId }))
+    .data;
+  setSession(res.access_token);
+  return res;
+}
+
+// --- Org members (owner only) + invites -----------------------------------
+
+export async function listMembers(): Promise<OrgMember[]> {
+  return (await authed.get<OrgMember[]>("/org/members")).data;
+}
+
+export async function inviteMember(email: string): Promise<OrgMember> {
+  return (await authed.post<OrgMember>("/org/members", { email })).data;
+}
+
+export async function removeMember(email: string): Promise<void> {
+  await authed.delete(`/org/members/${encodeURIComponent(email)}`);
+}
+
+export async function getInviteInfo(token: string): Promise<InviteInfo> {
+  return (await pub.get<InviteInfo>(`/invites/${token}`)).data;
+}
+
+export async function acceptInvite(
+  token: string,
+  password?: string
+): Promise<AuthResponse> {
+  const res = (
+    await pub.post<AuthResponse>(`/invites/${token}/accept`, {
+      password: password || null,
+    })
+  ).data;
+  setSession(res.access_token);
+  return res;
 }
 
 /** Fetch the Google consent URL (or throw if Google login isn't configured). */
@@ -276,6 +317,18 @@ export async function downloadEntriesCsv(
   a.download = `${raffleName.replace(/[^a-z0-9]+/gi, "-")}-entries.csv`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+/** Owner-only: bulk-undo registrations. Returns how many were deregistered. */
+export async function deregisterEntries(
+  raffleId: string,
+  entryIds: string[]
+): Promise<number> {
+  const res = await authed.post<{ deregistered: number }>(
+    `/raffles/${raffleId}/entries/deregister`,
+    { entry_ids: entryIds }
+  );
+  return res.data.deregistered;
 }
 
 // --- Draw -----------------------------------------------------------------

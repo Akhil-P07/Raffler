@@ -579,13 +579,11 @@ class TestLogoOrgIsolation:
 # ---------------------------------------------------------------------------
 
 class TestPrintSheetWithLogos:
-    def test_sheet_returns_png_when_raffle_has_logos(
+    def test_sheet_returns_pdf_when_raffle_has_logos(
         self, client, club_org, tiny_png
     ):
         raffle_id = create_raffle(client, club_org["headers"], name="Sheet+Logo")
         generate_tickets(client, club_org["headers"], raffle_id, count=2)
-
-        # Attach a logo.
         _upload_logo(
             client, club_org["headers"], raffle_id, tiny_png, name="Test Logo"
         )
@@ -595,15 +593,12 @@ class TestPrintSheetWithLogos:
             headers=club_org["headers"],
         )
         assert resp.status_code == 200
-        assert resp.headers["content-type"] == "image/png"
-        assert resp.content[:4] == PNG_MAGIC
+        assert resp.headers["content-type"] == "application/pdf"
+        assert resp.content[:4] == b"%PDF"
 
-    def test_sheet_returns_png_with_multiple_logos(
-        self, client, club_org, tiny_png
-    ):
+    def test_sheet_pdf_with_multiple_logos(self, client, club_org, tiny_png):
         raffle_id = create_raffle(client, club_org["headers"], name="Multi-Logo Sheet")
         generate_tickets(client, club_org["headers"], raffle_id, count=1)
-
         for i in range(3):
             _upload_logo(
                 client, club_org["headers"], raffle_id, tiny_png, name=f"Logo {i}"
@@ -614,56 +609,35 @@ class TestPrintSheetWithLogos:
             headers=club_org["headers"],
         )
         assert resp.status_code == 200
-        assert resp.content[:4] == PNG_MAGIC
+        assert resp.content[:4] == b"%PDF"
 
-    def test_sheet_with_logo_content_is_valid_pillow_image(
-        self, client, club_org, tiny_png
+    def test_ticket_preview_with_logo_is_valid_png(
+        self, client, app_and_db, club_org, tiny_png
     ):
-        """The PNG returned by the sheet endpoint must be openable by Pillow."""
+        """The per-ticket preview image (shown in the dashboard) embeds the logo
+        and must be a valid PNG."""
         from PIL import Image
 
-        raffle_id = create_raffle(client, club_org["headers"], name="Valid PNG Sheet")
+        _, database_mod = app_and_db
+        raffle_id = create_raffle(client, club_org["headers"], name="Preview Logo")
         generate_tickets(client, club_org["headers"], raffle_id, count=1)
         _upload_logo(client, club_org["headers"], raffle_id, tiny_png)
 
-        resp = client.get(
-            f"/raffles/{raffle_id}/tickets/sheet",
-            headers=club_org["headers"],
-        )
+        s = database_mod.SessionLocal()
+        try:
+            ticket_id = (
+                s.query(database_mod.Ticket)
+                .filter(database_mod.Ticket.raffle_id == raffle_id)
+                .first()
+                .id
+            )
+        finally:
+            s.close()
+
+        resp = client.get(f"/tickets/{ticket_id}/preview", headers=club_org["headers"])
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "image/png"
         img = Image.open(io.BytesIO(resp.content))
         assert img.format == "PNG"
-
-    def test_sheet_with_logo_is_taller_than_sheet_without_logo(
-        self, client, club_org, tiny_png
-    ):
-        """The logo band adds height to each ticket. Sheet with a logo must be
-        taller than the same raffle rendered without one."""
-        from PIL import Image
-
-        # Sheet without logo.
-        raffle_no_logo = create_raffle(
-            client, club_org["headers"], name="No-Logo Sheet"
-        )
-        generate_tickets(client, club_org["headers"], raffle_no_logo, count=1)
-        resp_no_logo = client.get(
-            f"/raffles/{raffle_no_logo}/tickets/sheet",
-            headers=club_org["headers"],
-        )
-        h_no_logo = Image.open(io.BytesIO(resp_no_logo.content)).height
-
-        # Sheet with logo.
-        raffle_with_logo = create_raffle(
-            client, club_org["headers"], name="With-Logo Sheet"
-        )
-        generate_tickets(client, club_org["headers"], raffle_with_logo, count=1)
-        _upload_logo(client, club_org["headers"], raffle_with_logo, tiny_png)
-        resp_with_logo = client.get(
-            f"/raffles/{raffle_with_logo}/tickets/sheet",
-            headers=club_org["headers"],
-        )
-        h_with_logo = Image.open(io.BytesIO(resp_with_logo.content)).height
-
-        assert h_with_logo > h_no_logo, (
-            "Sheet with a logo should be taller than one without "
-            f"(got {h_with_logo} vs {h_no_logo})"
-        )
+        # The ticket is ~10:11 (slightly taller than wide).
+        assert img.height > img.width

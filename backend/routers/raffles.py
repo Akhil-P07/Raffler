@@ -1,4 +1,9 @@
-"""Raffle CRUD. Every route is scoped to the API key's org."""
+"""Raffle CRUD.
+
+Viewing (list/detail) is open to any org member; creating, editing, and
+deleting raffles are owner-only — an invited seller-member can register tickets
+but must not be able to reshape or remove the org's raffles.
+"""
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -6,7 +11,7 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from database import Entry, Organization, Raffle, Ticket, get_db
-from middleware.ownership import get_owned_raffle, require_org
+from middleware.ownership import get_owned_raffle, require_org, require_owner
 from schemas import (
     CreateRaffleRequest,
     RaffleDetailResponse,
@@ -23,7 +28,7 @@ router = APIRouter(tags=["raffles"])
 )
 def create_raffle(
     body: CreateRaffleRequest,
-    org: Organization = Depends(require_org),
+    org: Organization = Depends(require_owner),
     db: Session = Depends(get_db),
 ) -> RaffleResponse:
     enforce_active_raffle_limit(db, org.id, org.plan)
@@ -79,7 +84,7 @@ def get_raffle(
 def update_raffle(
     raffle_id: str,
     body: UpdateRaffleRequest,
-    org: Organization = Depends(require_org),
+    org: Organization = Depends(require_owner),
     db: Session = Depends(get_db),
 ) -> RaffleResponse:
     raffle = get_owned_raffle(raffle_id, org, db)
@@ -107,7 +112,7 @@ def update_raffle(
 @router.delete("/raffles/{raffle_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_raffle(
     raffle_id: str,
-    org: Organization = Depends(require_org),
+    org: Organization = Depends(require_owner),
     db: Session = Depends(get_db),
 ) -> None:
     raffle = get_owned_raffle(raffle_id, org, db)
