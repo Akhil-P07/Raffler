@@ -138,12 +138,14 @@ uploader before upload.
 
 ## Plan limits
 
-| Plan | Active raffles | Tickets per raffle |
-|------|----------------|--------------------|
-| Free | 1 | 50 |
+| Plan | Raffles (lifetime) | Tickets per raffle |
+|------|--------------------|--------------------|
+| Free | 5 | 50 |
 | Club | unlimited | unlimited |
 
-"Active" = `status != 'drawn'` AND `deleted_at IS NULL`. Over-limit → 403.
+The free raffle cap is a **lifetime** total — every raffle ever created counts,
+including soft-deleted and already-drawn ones, so deleting one never frees a
+slot. Over-limit → 403.
 
 ## Authentication & access control
 

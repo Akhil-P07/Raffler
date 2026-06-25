@@ -164,7 +164,7 @@ export default function LogoManager({ raffleId, onChange }: Props) {
             ref={fileRef}
             type="file"
             accept="image/png,image/jpeg,image/webp,image/svg+xml,.svg"
-            className="mt-1 text-sm"
+            className="mt-1 block w-full text-sm text-gray-500 file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-brand/10 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-brand-dark hover:file:bg-brand/20"
           />
         </div>
         <div>

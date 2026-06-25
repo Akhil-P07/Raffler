@@ -186,8 +186,10 @@ _WRITE_IN = "_" * 26  # blank pen write-in line in the stub
 
 
 def _decode_logos(raw_list: list[bytes], target_h: int) -> list[Image.Image]:
-    """Decode stored PNG logo bytes into RGBA images scaled to target_h tall.
-    Bad bytes are skipped rather than failing the whole ticket."""
+    """Decode stored logo bytes, scale to target_h tall, and flatten onto white
+    (the ticket is white). Flattening means a transparent background renders as
+    clean white — never a black box — and removes alpha-edge halos. Bad bytes
+    are skipped rather than failing the whole ticket."""
     out: list[Image.Image] = []
     for raw in raw_list:
         try:
@@ -196,8 +198,11 @@ def _decode_logos(raw_list: list[bytes], target_h: int) -> list[Image.Image]:
             continue
         if img.height != target_h:
             scale = target_h / img.height
-            img = img.resize((max(1, int(img.width * scale)), target_h))
-        out.append(img)
+            img = img.resize(
+                (max(1, int(img.width * scale)), target_h), Image.LANCZOS
+            )
+        bg = Image.new("RGBA", img.size, (255, 255, 255, 255))
+        out.append(Image.alpha_composite(bg, img).convert("RGB"))
     return out
 
 
@@ -242,7 +247,7 @@ def render_ticket(
         total = sum(im.width for im in logos) + gap * (len(logos) - 1)
         lx = max(pad, (_TW - total) // 2)
         for im in logos:
-            img.paste(im, (lx, cy), im)
+            img.paste(im, (lx, cy))  # logos are flattened onto white (opaque)
             lx += im.width + gap
         cy += (logos[0].height if logos else 0) + 10
 

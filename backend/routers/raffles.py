@@ -18,7 +18,7 @@ from schemas import (
     RaffleResponse,
     UpdateRaffleRequest,
 )
-from services.limits import enforce_active_raffle_limit
+from services.limits import enforce_raffle_limit
 
 router = APIRouter(tags=["raffles"])
 
@@ -31,7 +31,7 @@ def create_raffle(
     org: Organization = Depends(require_owner),
     db: Session = Depends(get_db),
 ) -> RaffleResponse:
-    enforce_active_raffle_limit(db, org.id, org.plan)
+    enforce_raffle_limit(db, org.id, org.plan)
     raffle = Raffle(
         org_id=org.id,
         name=body.name,

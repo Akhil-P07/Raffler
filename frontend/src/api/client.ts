@@ -219,10 +219,38 @@ export async function downloadTicketSheet(
 
 // --- Logos ----------------------------------------------------------------
 
+/** Read an SVG's intrinsic size from width/height, falling back to viewBox. */
+function svgIntrinsicSize(text: string): { w: number; h: number } {
+  try {
+    const svg = new DOMParser().parseFromString(
+      text,
+      "image/svg+xml"
+    ).documentElement;
+    let w = parseFloat(svg.getAttribute("width") || "") || 0;
+    let h = parseFloat(svg.getAttribute("height") || "") || 0;
+    if (!w || !h) {
+      const vb = (svg.getAttribute("viewBox") || "").split(/[\s,]+/).map(Number);
+      if (vb.length === 4 && vb[2] > 0 && vb[3] > 0) {
+        w = vb[2];
+        h = vb[3];
+      }
+    }
+    if (w > 0 && h > 0) return { w, h };
+  } catch {
+    /* fall through */
+  }
+  return { w: 300, h: 300 };
+}
+
 /**
  * Rasterize an SVG to a PNG Blob in the browser (canvas), so the backend only
  * ever stores PNG and we don't need a server-side SVG converter. Non-SVG files
  * pass through unchanged.
+ *
+ * Many SVGs omit width/height and only carry a viewBox; a browser then draws
+ * them blank or at a tiny default. So we derive the real size, scale the
+ * longest side up to a crisp 400px, and force explicit width/height onto the
+ * <svg> element before rasterizing.
  */
 async function rasterizeIfSvg(file: File): Promise<Blob> {
   const isSvg =
@@ -230,26 +258,40 @@ async function rasterizeIfSvg(file: File): Promise<Blob> {
   if (!isSvg) return file;
 
   const text = await file.text();
-  const url = URL.createObjectURL(new Blob([text], { type: "image/svg+xml" }));
+  const { w: w0, h: h0 } = svgIntrinsicSize(text);
+  const factor = 400 / Math.max(w0, h0); // scale up or down to ~400px
+  const tw = Math.max(1, Math.round(w0 * factor));
+  const th = Math.max(1, Math.round(h0 * factor));
+
+  // Replace any existing width/height on the root <svg> with our explicit size.
+  const sized = text.replace(
+    /<svg\b([^>]*)>/i,
+    (_m, attrs: string) =>
+      `<svg${attrs.replace(/\s(width|height)\s*=\s*"[^"]*"/gi, "")}` +
+      ` width="${tw}" height="${th}">`
+  );
+
+  const url = URL.createObjectURL(new Blob([sized], { type: "image/svg+xml" }));
   try {
     const img = new Image();
+    img.width = tw;
+    img.height = th;
     await new Promise<void>((resolve, reject) => {
       img.onload = () => resolve();
       img.onerror = () => reject(new Error("Could not load SVG"));
       img.src = url;
     });
-    const maxSide = 400;
-    const natW = img.width || 300;
-    const natH = img.height || 300;
-    const scale = Math.min(1, maxSide / Math.max(natW, natH));
-    const w = Math.max(1, Math.round(natW * scale));
-    const h = Math.max(1, Math.round(natH * scale));
     const canvas = document.createElement("canvas");
-    canvas.width = w;
-    canvas.height = h;
+    canvas.width = tw;
+    canvas.height = th;
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("Could not get a 2D canvas context");
-    ctx.drawImage(img, 0, 0, w, h);
+    // Paint a white background first: tickets are white, and this prevents an
+    // SVG with a transparent background (or currentColor/alpha quirks) from
+    // exporting transparent pixels that render as black.
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, tw, th);
+    ctx.drawImage(img, 0, 0, tw, th);
     return await new Promise<Blob>((resolve, reject) =>
       canvas.toBlob(
         (b) => (b ? resolve(b) : reject(new Error("Canvas export failed"))),

@@ -1,24 +1,25 @@
 """Plan limit enforcement.
 
-| Plan | Active raffles | Tickets per raffle |
-|------|----------------|--------------------|
-| Free | 1              | 50                 |
-| Club | unlimited      | unlimited          |
+| Plan | Raffles (lifetime) | Tickets per raffle |
+|------|--------------------|--------------------|
+| Free | 5                  | 50                 |
+| Club | unlimited          | unlimited          |
 
-"Active" means status != 'drawn' AND deleted_at IS NULL. Over-limit requests
-raise an HTTP 403 with a clear message (the spec mandates 403, not 422, for
-plan ceilings).
+The free raffle cap is a LIFETIME total: every raffle the org has ever created
+counts, including soft-deleted and already-drawn ones, so deleting or drawing a
+raffle does not free up a slot. Over-limit requests raise HTTP 403 with a clear
+message (403, not 422, for plan ceilings).
 """
 from fastapi import HTTPException, status
-from sqlalchemy import and_, func, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from database import Organization, Raffle, Ticket
 
 # None means "unlimited".
 PLAN_LIMITS: dict[str, dict[str, int | None]] = {
-    "free": {"active_raffles": 1, "tickets_per_raffle": 50},
-    "club": {"active_raffles": None, "tickets_per_raffle": None},
+    "free": {"lifetime_raffles": 5, "tickets_per_raffle": 50},
+    "club": {"lifetime_raffles": None, "tickets_per_raffle": None},
 }
 
 
@@ -38,29 +39,25 @@ def _lock_org(db: Session, org_id: str) -> None:
     )
 
 
-def enforce_active_raffle_limit(db: Session, org_id: str, plan: str) -> None:
-    limit = _limits_for(plan)["active_raffles"]
+def enforce_raffle_limit(db: Session, org_id: str, plan: str) -> None:
+    """Free orgs may create at most N raffles over their lifetime. ALL raffles
+    count — including soft-deleted and drawn — so a deleted raffle never frees
+    a slot."""
+    limit = _limits_for(plan)["lifetime_raffles"]
     if limit is None:
         return
 
     _lock_org(db, org_id)
-    active_count = db.scalar(
-        select(func.count())
-        .select_from(Raffle)
-        .where(
-            and_(
-                Raffle.org_id == org_id,
-                Raffle.status != "drawn",
-                Raffle.deleted_at.is_(None),
-            )
-        )
-    )
-    if active_count is not None and active_count >= limit:
+    total = db.scalar(
+        select(func.count()).select_from(Raffle).where(Raffle.org_id == org_id)
+    ) or 0
+    if total >= limit:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=(
-                f"Plan limit reached: the {plan} plan allows {limit} active "
-                "raffle(s). Upgrade to the Club plan for unlimited raffles."
+                f"Plan limit reached: the {plan} plan allows {limit} raffles "
+                "total (lifetime — deleted and drawn raffles still count). "
+                "Upgrade to the Club plan for unlimited raffles."
             ),
         )
 
