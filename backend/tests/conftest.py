@@ -53,6 +53,8 @@ def _reload_app(db_path: str):
     os.environ["BASE_URL"] = "http://testserver"
     os.environ["FRONTEND_ORIGIN"] = "http://testserver"
     os.environ["API_ORIGIN"] = "http://testserver"
+    # Emails in this list get the club plan on signup/login.
+    os.environ["PREMIUM_EMAILS"] = "club@test.example,orgb@test.example"
 
     # Clear the lru_cache on config so the new env vars are picked up.
     for mod_name in _MODULES_TO_RELOAD:
@@ -115,9 +117,9 @@ def db(app_and_db):
 
 @pytest.fixture()
 def admin_token(client):
-    """JWT for the bootstrap admin."""
+    """JWT for the platform super-admin (manages the premium allowlist)."""
     resp = client.post(
-        "/auth/login",
+        "/auth/admin/login",
         json={"email": "admin@example.com", "password": "changeme"},
     )
     assert resp.status_code == 200, resp.text
@@ -130,37 +132,40 @@ def admin_headers(admin_token):
 
 
 # ---------------------------------------------------------------------------
-# Org helpers
+# Account / org helpers — self-signup yields a session token. Emails in
+# PREMIUM_EMAILS (set above) are provisioned on the club plan.
 # ---------------------------------------------------------------------------
 
-def create_org(client, admin_headers, name="Test Org", plan="free"):
+def signup(client, email, password="password123", org_name="Test Org"):
     resp = client.post(
-        "/orgs",
-        json={"name": name, "plan": plan},
-        headers=admin_headers,
+        "/auth/register",
+        json={"email": email, "password": password, "org_name": org_name},
     )
     assert resp.status_code == 201, resp.text
     data = resp.json()
-    return data["id"], data["api_key"]
+    return {
+        "id": data["org"]["id"],
+        "email": data["email"],
+        "plan": data["org"]["plan"],
+        "token": data["access_token"],
+        "headers": {"Authorization": f"Bearer {data['access_token']}"},
+    }
 
 
 @pytest.fixture()
-def free_org(client, admin_headers):
-    org_id, api_key = create_org(client, admin_headers, name="Free Org", plan="free")
-    return {"id": org_id, "api_key": api_key, "headers": {"X-API-Key": api_key}}
+def free_org(client):
+    return signup(client, "free@test.example", org_name="Free Org")
 
 
 @pytest.fixture()
-def club_org(client, admin_headers):
-    org_id, api_key = create_org(client, admin_headers, name="Club Org", plan="club")
-    return {"id": org_id, "api_key": api_key, "headers": {"X-API-Key": api_key}}
+def club_org(client):
+    return signup(client, "club@test.example", org_name="Club Org")
 
 
 @pytest.fixture()
-def org_b(client, admin_headers):
+def org_b(client):
     """A second org, used for isolation tests."""
-    org_id, api_key = create_org(client, admin_headers, name="Org B", plan="club")
-    return {"id": org_id, "api_key": api_key, "headers": {"X-API-Key": api_key}}
+    return signup(client, "orgb@test.example", org_name="Org B")
 
 
 # ---------------------------------------------------------------------------
@@ -194,9 +199,10 @@ def get_tickets_from_db(db_session, database_mod, raffle_id):
     return tickets
 
 
-def register_ticket(client, token, name="Alice", email="alice@example.com"):
-    resp = client.post(
+def register_ticket(client, token, headers, name="Alice", email="alice@example.com"):
+    """Register a ticket as the owning org (registration is seller-authenticated)."""
+    return client.post(
         f"/register/{token}",
         json={"name": name, "email": email},
+        headers=headers,
     )
-    return resp

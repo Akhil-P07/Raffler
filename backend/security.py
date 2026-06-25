@@ -1,12 +1,15 @@
-"""Shared crypto helpers: API key hashing, generation, and JWT handling.
+"""Shared auth helpers: password hashing, JWT sessions, OAuth state, and the
+Google OAuth code exchange.
 
-Kept separate from the auth router so the ownership dependency can verify API
-keys without importing route handlers (avoids a circular import).
+Kept separate from the auth router so the ownership dependency can decode
+session tokens without importing route handlers (avoids a circular import).
 """
 import logging
 import secrets
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
+import httpx
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 
@@ -19,83 +22,152 @@ logging.getLogger("passlib.handlers.bcrypt").setLevel(logging.CRITICAL)
 
 _pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-API_KEY_PREFIX = "rk_"
+GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
+GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
 
 
-# --- API keys -------------------------------------------------------------
+# --- passwords ------------------------------------------------------------
 
 
-def generate_api_key(org_id: str) -> str:
-    """A fresh, unguessable API key of the form ``rk_<org_id>.<secret>``.
-
-    The org id is embedded in the plaintext so an incoming key resolves to a
-    single org in O(1) — bcrypt hashes are salted and can't be queried for, so
-    without this we'd have to bcrypt-verify against every org. Only the bcrypt
-    hash of the whole key is stored; the plaintext is shown to the org once.
-    """
-    return f"{API_KEY_PREFIX}{org_id}.{secrets.token_urlsafe(32)}"
+def hash_password(password: str) -> str:
+    # bcrypt truncates at 72 bytes; callers cap password length in the schema.
+    return _pwd_context.hash(password)
 
 
-def _split_key(api_key: str) -> tuple[str, str] | None:
-    """Return (org_id, secret) for a well-formed key, else None."""
-    if not api_key.startswith(API_KEY_PREFIX):
-        return None
-    body = api_key[len(API_KEY_PREFIX) :]
-    org_id, sep, secret = body.partition(".")
-    if not sep or not org_id or not secret:
-        return None
-    return org_id, secret
-
-
-def parse_org_id(api_key: str) -> str | None:
-    """Extract the org id embedded in a presented API key, or None if the key
-    is malformed. Does NOT authenticate — the caller must still verify the
-    secret against that org's stored hash."""
-    parts = _split_key(api_key)
-    return parts[0] if parts else None
-
-
-def hash_api_key(api_key: str) -> str:
-    """Hash an API key for storage. Only the random secret segment is hashed,
-    not the full key: bcrypt silently truncates input at 72 bytes, and the
-    fixed `rk_<uuid>.` prefix would otherwise eat into the secret's entropy
-    window. The org id is parsed separately for lookup, so excluding it from
-    the hash costs nothing and keeps the full ~256-bit secret protected."""
-    parts = _split_key(api_key)
-    if parts is None:
-        raise ValueError("Malformed API key")
-    return _pwd_context.hash(parts[1])
-
-
-def verify_api_key(api_key: str, hashed: str) -> bool:
-    parts = _split_key(api_key)
-    if parts is None:
+def verify_password(password: str, hashed: str | None) -> bool:
+    if not hashed:
         return False
     try:
-        return _pwd_context.verify(parts[1], hashed)
+        return _pwd_context.verify(password, hashed)
     except ValueError:
-        # Malformed stored hash — treat as a non-match rather than crashing.
         return False
 
 
-# --- JWT ------------------------------------------------------------------
+# --- JWT: sessions, admin, and OAuth state --------------------------------
 
 
-def create_access_token(subject: str) -> tuple[str, int]:
-    """Returns (token, expires_in_seconds)."""
-    expires_delta = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    expire = datetime.now(timezone.utc) + expires_delta
-    payload = {"sub": subject, "exp": expire}
-    token = jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+def _encode(payload: dict[str, Any], expires_delta: timedelta) -> tuple[str, int]:
+    to_encode = dict(payload)
+    to_encode["exp"] = datetime.now(timezone.utc) + expires_delta
+    token = jwt.encode(
+        to_encode, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM
+    )
     return token, int(expires_delta.total_seconds())
 
 
-def decode_access_token(token: str) -> str | None:
-    """Returns the subject if the token is valid and unexpired, else None."""
+def create_session_token(user_id: str, email: str, org_id: str) -> tuple[str, int]:
+    """Session token for a logged-in user. Returns (token, expires_in_seconds)."""
+    return _encode(
+        {"typ": "session", "sub": user_id, "email": email, "org_id": org_id},
+        timedelta(minutes=settings.SESSION_TOKEN_EXPIRE_MINUTES),
+    )
+
+
+def decode_session_token(token: str) -> dict[str, Any] | None:
+    """Return the session claims if valid+unexpired and of type 'session'."""
     try:
         payload = jwt.decode(
             token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM]
         )
     except JWTError:
         return None
+    if payload.get("typ") != "session" or "org_id" not in payload:
+        return None
+    return payload
+
+
+def create_admin_token(email: str) -> tuple[str, int]:
+    return _encode(
+        {"typ": "admin", "sub": email},
+        timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
+    )
+
+
+def decode_admin_email(token: str) -> str | None:
+    try:
+        payload = jwt.decode(
+            token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM]
+        )
+    except JWTError:
+        return None
+    if payload.get("typ") != "admin":
+        return None
     return payload.get("sub")
+
+
+def create_oauth_state() -> tuple[str, int]:
+    """Short-lived signed state for CSRF protection on the Google flow."""
+    return _encode(
+        {"typ": "oauth_state", "nonce": secrets.token_urlsafe(16)},
+        timedelta(minutes=10),
+    )
+
+
+def verify_oauth_state(token: str) -> bool:
+    try:
+        payload = jwt.decode(
+            token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM]
+        )
+    except JWTError:
+        return False
+    return payload.get("typ") == "oauth_state"
+
+
+# --- Google OAuth ---------------------------------------------------------
+
+
+def google_auth_url(state: str) -> str:
+    from urllib.parse import urlencode
+
+    params = {
+        "client_id": settings.GOOGLE_CLIENT_ID,
+        "redirect_uri": settings.GOOGLE_REDIRECT_URI,
+        "response_type": "code",
+        "scope": "openid email profile",
+        "state": state,
+        "access_type": "online",
+        "prompt": "select_account",
+    }
+    return f"{GOOGLE_AUTH_URL}?{urlencode(params)}"
+
+
+def google_exchange_code(code: str) -> dict[str, Any]:
+    """Exchange an auth code for tokens, then fetch the user's profile.
+
+    Returns {'email', 'email_verified', 'sub', 'name'}. Raises ValueError on
+    any failure. Isolated here so tests can monkeypatch it.
+    """
+    with httpx.Client(timeout=10) as client:
+        token_resp = client.post(
+            GOOGLE_TOKEN_URL,
+            data={
+                "code": code,
+                "client_id": settings.GOOGLE_CLIENT_ID,
+                "client_secret": settings.GOOGLE_CLIENT_SECRET,
+                "redirect_uri": settings.GOOGLE_REDIRECT_URI,
+                "grant_type": "authorization_code",
+            },
+        )
+        if token_resp.status_code != 200:
+            raise ValueError("Google token exchange failed")
+        access_token = token_resp.json().get("access_token")
+        if not access_token:
+            raise ValueError("No access token from Google")
+
+        info_resp = client.get(
+            GOOGLE_USERINFO_URL,
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        if info_resp.status_code != 200:
+            raise ValueError("Could not fetch Google profile")
+        info = info_resp.json()
+
+    if not info.get("email"):
+        raise ValueError("Google profile has no email")
+    return {
+        "email": info["email"],
+        "email_verified": bool(info.get("email_verified", False)),
+        "sub": info.get("sub"),
+        "name": info.get("name"),
+    }

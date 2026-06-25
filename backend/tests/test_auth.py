@@ -1,150 +1,178 @@
-"""Tests for POST /auth/login, POST /orgs, and POST /orgs/{id}/rotate-key."""
-import pytest
+"""Tests for session auth: email/password signup + login, /me, the admin
+premium allowlist, and plan evaluation. There are no API keys."""
 
-from tests.conftest import create_org
+
+def _register(client, email, password="password123", org_name="Acme"):
+    return client.post(
+        "/auth/register",
+        json={"email": email, "password": password, "org_name": org_name},
+    )
+
+
+class TestSignup:
+    def test_register_returns_session_and_free_plan(self, client):
+        r = _register(client, "a@example.com")
+        assert r.status_code == 201, r.text
+        body = r.json()
+        assert body["access_token"]
+        assert body["token_type"] == "bearer"
+        assert body["email"] == "a@example.com"
+        assert body["org"]["plan"] == "free"
+        assert body["org"]["name"] == "Acme"
+        # No API key anywhere in the response.
+        assert "api_key" not in body and "api_key" not in body["org"]
+
+    def test_email_is_normalized_lowercase(self, client):
+        r = _register(client, "MixedCase@Example.com")
+        assert r.status_code == 201
+        assert r.json()["email"] == "mixedcase@example.com"
+
+    def test_duplicate_email_returns_409(self, client):
+        _register(client, "dup@example.com")
+        r = _register(client, "DUP@example.com")
+        assert r.status_code == 409
+
+    def test_short_password_returns_422(self, client):
+        r = _register(client, "x@example.com", password="short")
+        assert r.status_code == 422
+
+    def test_default_org_name_from_email(self, client):
+        r = client.post(
+            "/auth/register",
+            json={"email": "noorg@example.com", "password": "password123"},
+        )
+        assert r.json()["org"]["name"] == "noorg"
 
 
 class TestLogin:
-    def test_valid_credentials_return_jwt(self, client):
-        resp = client.post(
-            "/auth/login",
+    def test_login_success(self, client):
+        _register(client, "u@example.com", password="password123")
+        r = client.post(
+            "/auth/login", json={"email": "u@example.com", "password": "password123"}
+        )
+        assert r.status_code == 200
+        assert r.json()["access_token"]
+
+    def test_login_wrong_password_401(self, client):
+        _register(client, "u@example.com", password="password123")
+        r = client.post(
+            "/auth/login", json={"email": "u@example.com", "password": "nope"}
+        )
+        assert r.status_code == 401
+
+    def test_login_unknown_email_401(self, client):
+        r = client.post(
+            "/auth/login", json={"email": "ghost@example.com", "password": "whatever1"}
+        )
+        assert r.status_code == 401
+
+
+class TestSession:
+    def test_me_returns_account(self, client):
+        token = _register(client, "me@example.com").json()["access_token"]
+        r = client.get("/me", headers={"Authorization": f"Bearer {token}"})
+        assert r.status_code == 200
+        assert r.json()["email"] == "me@example.com"
+        assert r.json()["org"]["plan"] == "free"
+
+    def test_me_without_token_401(self, client):
+        assert client.get("/me").status_code == 401
+
+    def test_me_with_garbage_token_401(self, client):
+        r = client.get("/me", headers={"Authorization": "Bearer not.a.jwt"})
+        assert r.status_code == 401
+
+    def test_org_scoped_requires_session(self, client):
+        assert client.get("/raffles").status_code == 401
+
+    def test_patch_org_updates_name_and_goc(self, client):
+        token = _register(client, "og@example.com").json()["access_token"]
+        h = {"Authorization": f"Bearer {token}"}
+        r = client.patch(
+            "/org", json={"name": "New Name", "goc_id": "12-345"}, headers=h
+        )
+        assert r.status_code == 200
+        assert r.json()["name"] == "New Name"
+        assert r.json()["goc_id"] == "12-345"
+        # Clearing goc_id with null works.
+        r = client.patch("/org", json={"goc_id": None}, headers=h)
+        assert r.json()["goc_id"] is None
+
+
+class TestPremiumAllowlist:
+    def test_env_premium_email_gets_club(self, client):
+        # club@test.example is in PREMIUM_EMAILS (conftest).
+        r = _register(client, "club@test.example")
+        assert r.json()["org"]["plan"] == "club"
+
+    def test_admin_login(self, client):
+        r = client.post(
+            "/auth/admin/login",
             json={"email": "admin@example.com", "password": "changeme"},
         )
-        assert resp.status_code == 200
-        body = resp.json()
-        assert "access_token" in body
-        assert body["token_type"] == "bearer"
-        assert body["expires_in"] > 0
+        assert r.status_code == 200
+        assert r.json()["access_token"]
 
-    def test_wrong_password_returns_401(self, client):
-        resp = client.post(
+    def test_admin_login_bad_password_401(self, client):
+        r = client.post(
+            "/auth/admin/login",
+            json={"email": "admin@example.com", "password": "wrong"},
+        )
+        assert r.status_code == 401
+
+    def test_admin_can_add_and_list_premium(self, client, admin_headers):
+        r = client.post(
+            "/admin/premium",
+            json={"email": "vip@example.com"},
+            headers=admin_headers,
+        )
+        assert r.status_code == 201
+        emails = [
+            e["email"]
+            for e in client.get("/admin/premium", headers=admin_headers).json()
+        ]
+        assert "vip@example.com" in emails
+
+    def test_premium_endpoints_require_admin(self, client):
+        token = _register(client, "norm@example.com").json()["access_token"]
+        # A normal user session is not an admin token.
+        r = client.get(
+            "/admin/premium", headers={"Authorization": f"Bearer {token}"}
+        )
+        assert r.status_code == 401
+        assert client.get("/admin/premium").status_code == 401
+
+    def test_adding_email_promotes_existing_user_on_next_login(
+        self, client, admin_headers
+    ):
+        _register(client, "promote@example.com", password="password123")
+        client.post(
+            "/admin/premium",
+            json={"email": "promote@example.com"},
+            headers=admin_headers,
+        )
+        r = client.post(
             "/auth/login",
-            json={"email": "admin@example.com", "password": "wrongpassword"},
+            json={"email": "promote@example.com", "password": "password123"},
         )
-        assert resp.status_code == 401
+        assert r.json()["org"]["plan"] == "club"
 
-    def test_wrong_email_returns_401(self, client):
-        resp = client.post(
+    def test_removing_email_demotes_on_next_login(self, client, admin_headers):
+        client.post(
+            "/admin/premium",
+            json={"email": "demote@example.com"},
+            headers=admin_headers,
+        )
+        _register(client, "demote@example.com", password="password123")  # club now
+        client.delete("/admin/premium/demote@example.com", headers=admin_headers)
+        r = client.post(
             "/auth/login",
-            json={"email": "notadmin@example.com", "password": "changeme"},
+            json={"email": "demote@example.com", "password": "password123"},
         )
-        assert resp.status_code == 401
-
-    def test_missing_body_returns_422(self, client):
-        resp = client.post("/auth/login", json={})
-        assert resp.status_code == 422
-
-    def test_invalid_email_format_returns_422(self, client):
-        resp = client.post(
-            "/auth/login",
-            json={"email": "not-an-email", "password": "changeme"},
-        )
-        assert resp.status_code == 422
+        assert r.json()["org"]["plan"] == "free"
 
 
-class TestCreateOrg:
-    def test_create_org_returns_api_key_once(self, client, admin_headers):
-        resp = client.post(
-            "/orgs",
-            json={"name": "My Org", "plan": "free"},
-            headers=admin_headers,
-        )
-        assert resp.status_code == 201
-        body = resp.json()
-        assert "api_key" in body
-        assert body["api_key"].startswith("rk_")
-        assert body["plan"] == "free"
-        assert body["name"] == "My Org"
-
-    def test_api_key_embeds_org_id(self, client, admin_headers):
-        resp = client.post(
-            "/orgs",
-            json={"name": "Key Test Org", "plan": "free"},
-            headers=admin_headers,
-        )
-        body = resp.json()
-        org_id = body["id"]
-        api_key = body["api_key"]
-        # Format: rk_<org_id>.<secret>
-        assert api_key.startswith(f"rk_{org_id}.")
-
-    def test_create_org_requires_admin_jwt(self, client):
-        resp = client.post("/orgs", json={"name": "Hacker Org", "plan": "free"})
-        assert resp.status_code == 401
-
-    def test_create_org_with_invalid_plan_returns_422(self, client, admin_headers):
-        resp = client.post(
-            "/orgs",
-            json={"name": "Bad Plan Org", "plan": "enterprise"},
-            headers=admin_headers,
-        )
-        assert resp.status_code == 422
-
-    def test_create_org_with_club_plan(self, client, admin_headers):
-        resp = client.post(
-            "/orgs",
-            json={"name": "Club Org", "plan": "club"},
-            headers=admin_headers,
-        )
-        assert resp.status_code == 201
-        assert resp.json()["plan"] == "club"
-
-
-class TestKeyRotation:
-    def test_rotate_key_returns_new_key(self, client, admin_headers):
-        org_id, old_key = create_org(client, admin_headers, name="Rotate Org")
-        resp = client.post(
-            f"/orgs/{org_id}/rotate-key", headers=admin_headers
-        )
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["id"] == org_id
-        assert "api_key" in body
-        assert body["api_key"] != old_key
-        assert body["api_key"].startswith("rk_")
-
-    def test_old_key_returns_401_after_rotation(self, client, admin_headers):
-        org_id, old_key = create_org(client, admin_headers, name="Rotate Org 2")
-        # Create a raffle with old key to verify access first.
-        resp = client.post(
-            "/raffles",
-            json={"name": "Pre-rotation Raffle"},
-            headers={"X-API-Key": old_key},
-        )
-        assert resp.status_code == 201
-
-        # Rotate the key.
-        client.post(f"/orgs/{org_id}/rotate-key", headers=admin_headers)
-
-        # Old key must now fail.
-        resp = client.post(
-            "/raffles",
-            json={"name": "Post-rotation Raffle"},
-            headers={"X-API-Key": old_key},
-        )
-        assert resp.status_code == 401
-
-    def test_new_key_works_after_rotation(self, client, admin_headers):
-        org_id, _ = create_org(client, admin_headers, name="Rotate Org 3")
-        resp = client.post(
-            f"/orgs/{org_id}/rotate-key", headers=admin_headers
-        )
-        new_key = resp.json()["api_key"]
-        resp = client.post(
-            "/raffles",
-            json={"name": "Post-rotation Raffle"},
-            headers={"X-API-Key": new_key},
-        )
-        assert resp.status_code == 201
-
-    def test_rotate_key_on_unknown_org_returns_404(self, client, admin_headers):
-        fake_id = "00000000-0000-0000-0000-000000000000"
-        resp = client.post(
-            f"/orgs/{fake_id}/rotate-key", headers=admin_headers
-        )
-        assert resp.status_code == 404
-
-    def test_rotate_key_requires_admin_jwt(self, client, admin_headers):
-        org_id, _ = create_org(client, admin_headers, name="Rotate Org 4")
-        resp = client.post(f"/orgs/{org_id}/rotate-key")
-        assert resp.status_code == 401
+class TestGoogle:
+    def test_google_login_503_when_unconfigured(self, client):
+        # GOOGLE_CLIENT_ID/SECRET are unset in the test env.
+        assert client.get("/auth/google/login").status_code == 503

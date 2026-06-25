@@ -1,25 +1,28 @@
-"""Org authentication and ownership resolution.
+"""Session authentication and ownership resolution.
 
-Every protected route depends on `require_org` to authenticate the API key,
-then uses the `get_owned_*` helpers to resolve a resource and confirm it
-belongs to that org. Ownership mismatches raise 404 (not 403) so the API never
-leaks whether a resource id exists in another org's namespace.
+Every protected route depends on `require_org` to authenticate the user's
+session (Bearer JWT) and resolve their organization, then uses the
+`get_owned_*` helpers to confirm a resource belongs to that org. Ownership
+mismatches raise 404 (not 403) so the API never leaks whether a resource id
+exists in another org's namespace.
 
 Centralizing this here means no individual route can forget the check.
 """
 import uuid
+from typing import Any
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from database import Entry, Organization, Raffle, Ticket, get_db
-from security import parse_org_id, verify_api_key
+from security import decode_session_token
 
-_INVALID_KEY = HTTPException(
+_INVALID_SESSION = HTTPException(
     status_code=status.HTTP_401_UNAUTHORIZED,
-    detail="Invalid or missing API key.",
-    headers={"WWW-Authenticate": "X-API-Key"},
+    detail="Not authenticated.",
+    headers={"WWW-Authenticate": "Bearer"},
 )
 
 # Reused for every ownership miss so existence is indistinguishable from
@@ -27,6 +30,8 @@ _INVALID_KEY = HTTPException(
 _NOT_FOUND = HTTPException(
     status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found."
 )
+
+_bearer = HTTPBearer(auto_error=False)
 
 
 def _is_uuid(value: str) -> bool:
@@ -37,22 +42,26 @@ def _is_uuid(value: str) -> bool:
         return False
 
 
+def get_session(
+    creds: HTTPAuthorizationCredentials | None = Depends(_bearer),
+) -> dict[str, Any]:
+    """Decode and validate the session Bearer token; return its claims."""
+    if creds is None or creds.scheme.lower() != "bearer":
+        raise _INVALID_SESSION
+    claims = decode_session_token(creds.credentials)
+    if claims is None:
+        raise _INVALID_SESSION
+    return claims
+
+
 def require_org(
-    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    claims: dict[str, Any] = Depends(get_session),
     db: Session = Depends(get_db),
 ) -> Organization:
-    """Authenticate the X-API-Key header and return the owning Organization."""
-    if not x_api_key:
-        raise _INVALID_KEY
-
-    org_id = parse_org_id(x_api_key)
-    if org_id is None or not _is_uuid(org_id):
-        raise _INVALID_KEY
-
-    org = db.get(Organization, org_id)
-    if org is None or not verify_api_key(x_api_key, org.api_key):
-        raise _INVALID_KEY
-
+    """Resolve the logged-in user's organization from their session."""
+    org = db.get(Organization, claims.get("org_id"))
+    if org is None:
+        raise _INVALID_SESSION
     return org
 
 

@@ -3,6 +3,28 @@
 export type RafflePlan = "free" | "club";
 export type RaffleStatus = "active" | "closed" | "drawn";
 
+// --- Auth ---
+
+export interface OrgSummary {
+  id: string;
+  name: string;
+  plan: RafflePlan;
+  goc_id: string | null;
+}
+
+export interface AuthResponse {
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+  email: string;
+  org: OrgSummary;
+}
+
+export interface Me {
+  email: string;
+  org: OrgSummary;
+}
+
 export interface Raffle {
   id: string;
   name: string;
@@ -74,11 +96,13 @@ export interface DrawResponse {
   winners: Winner[];
 }
 
-// Public registration responses (no org data leaked).
+// Seller-side ticket lookup. `owned` says whether the scanned ticket belongs
+// to the logged-in seller's org; details are present only when owned.
 export interface RegisterInfo {
-  ticket_number: number;
-  raffle_name: string;
-  registered: boolean;
+  owned: boolean;
+  ticket_number: number | null;
+  raffle_name: string | null;
+  registered: boolean | null;
 }
 
 export interface RegisterConfirmation {

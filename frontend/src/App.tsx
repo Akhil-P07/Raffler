@@ -1,99 +1,107 @@
-import { useState } from "react";
-import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { useEffect, useState } from "react";
+import {
+  Link,
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+} from "react-router-dom";
 import AdminDashboard from "./pages/AdminDashboard";
+import AuthCallback from "./pages/AuthCallback";
 import CreateRaffle from "./pages/CreateRaffle";
 import GenerateTickets from "./pages/GenerateTickets";
+import Login from "./pages/Login";
+import OrgSettings from "./pages/OrgSettings";
 import Register from "./pages/Register";
-import { clearApiKey, getApiKey, setApiKey } from "./api/client";
-
-/** Prompts for the org API key once, then stores it for authenticated calls. */
-function ApiKeyGate({ children }: { children: React.ReactNode }) {
-  const [hasKey, setHasKey] = useState(() => Boolean(getApiKey()));
-  const [value, setValue] = useState("");
-
-  if (hasKey) return <>{children}</>;
-
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50 p-4">
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (!value.trim()) return;
-          setApiKey(value);
-          setHasKey(true);
-        }}
-        className="w-full max-w-sm rounded-xl bg-white p-6 shadow"
-      >
-        <h1 className="text-xl font-bold text-gray-900">Raffler admin</h1>
-        <p className="mb-4 mt-1 text-sm text-gray-500">
-          Enter your organization API key to manage raffles. It's stored only in
-          this browser.
-        </p>
-        <label
-          htmlFor="api-key"
-          className="mb-1 block text-sm font-medium text-gray-700"
-        >
-          Organization API key
-        </label>
-        <input
-          id="api-key"
-          type="password"
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          placeholder="rk_…"
-          autoComplete="off"
-          className="w-full rounded-lg border border-gray-300 px-3 py-2 font-mono focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
-        />
-        <button
-          type="submit"
-          disabled={!value.trim()}
-          className="mt-3 w-full rounded-lg bg-brand py-2 font-semibold text-white hover:bg-brand-dark disabled:opacity-60"
-        >
-          Continue
-        </button>
-      </form>
-    </div>
-  );
-}
+import Signup from "./pages/Signup";
+import { clearSession, getMe, getSession, isUnauthorized } from "./api/client";
+import type { Me } from "./api/types";
 
 function AdminShell({ children }: { children: React.ReactNode }) {
+  const navigate = useNavigate();
+  const [me, setMe] = useState<Me | null>(null);
+
+  useEffect(() => {
+    getMe()
+      .then(setMe)
+      .catch((err) => {
+        // A bad/expired session resolves to the login screen.
+        if (isUnauthorized(err)) {
+          clearSession();
+          navigate("/login", { replace: true });
+        }
+      });
+  }, [navigate]);
+
+  function signOut() {
+    clearSession();
+    navigate("/login", { replace: true });
+  }
+
   return (
-    <ApiKeyGate>
-      <div className="min-h-screen bg-gray-50">
-        <header className="no-print border-b border-gray-200 bg-white">
-          <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-            <span className="text-lg font-bold text-brand">Raffler</span>
+    <div className="min-h-screen bg-gray-50">
+      <header className="no-print border-b border-gray-200 bg-white">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
+          <Link to="/" className="text-lg font-bold text-brand">
+            Raffler
+          </Link>
+          <div className="flex items-center gap-3 text-sm">
+            {me && (
+              <>
+                <span className="hidden text-gray-600 sm:inline">{me.email}</span>
+                <span
+                  className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                    me.org.plan === "club"
+                      ? "bg-brand/10 text-brand-dark"
+                      : "bg-gray-100 text-gray-600"
+                  }`}
+                >
+                  {me.org.plan === "club" ? "Club" : "Free"}
+                </span>
+              </>
+            )}
+            <Link to="/settings" className="text-gray-500 hover:text-brand">
+              Settings
+            </Link>
             <button
               type="button"
-              onClick={() => {
-                clearApiKey();
-                window.location.reload();
-              }}
-              className="text-sm text-gray-500 hover:text-brand"
+              onClick={signOut}
+              className="text-gray-500 hover:text-brand"
             >
               Sign out
             </button>
           </div>
-        </header>
-        {children}
-      </div>
-    </ApiKeyGate>
+        </div>
+      </header>
+      {children}
+    </div>
   );
 }
 
 export default function App() {
-  const location = useLocation();
-  // The public registration route must never sit behind the admin key gate.
-  const isPublic = location.pathname.startsWith("/register");
+  const { pathname, search } = useLocation();
 
-  if (isPublic) {
+  // Auth screens (no session required).
+  if (
+    pathname === "/login" ||
+    pathname === "/signup" ||
+    pathname.startsWith("/auth/callback")
+  ) {
     return (
       <Routes>
-        <Route path="/register/:token" element={<Register />} />
-        {/* /register with no token isn't a real link (QRs always carry one) */}
-        <Route path="/register" element={<Navigate to="/" replace />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/signup" element={<Signup />} />
+        <Route path="/auth/callback" element={<AuthCallback />} />
       </Routes>
     );
+  }
+
+  // Everything else — including ticket registration — requires a session.
+  // Preserve where the seller was headed (e.g. a scanned /register/<token>).
+  if (!getSession()) {
+    const next = encodeURIComponent(pathname + search);
+    return <Navigate to={`/login?next=${next}`} replace />;
   }
 
   return (
@@ -102,6 +110,8 @@ export default function App() {
         <Route path="/" element={<AdminDashboard />} />
         <Route path="/raffles/new" element={<CreateRaffle />} />
         <Route path="/raffles/:raffleId/tickets" element={<GenerateTickets />} />
+        <Route path="/register/:token" element={<Register />} />
+        <Route path="/settings" element={<OrgSettings />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </AdminShell>

@@ -315,51 +315,38 @@ class TestRaffleMetadataPatch:
 # ---------------------------------------------------------------------------
 
 class TestOrgGocId:
-    def test_create_org_with_goc_id_returns_it(self, client, admin_headers):
-        resp = client.post(
-            "/orgs",
-            json={"name": "GOC Org", "plan": "club", "goc_id": "GOC-12345"},
-            headers=admin_headers,
-        )
-        assert resp.status_code == 201
-        body = resp.json()
-        assert body["goc_id"] == "GOC-12345"
+    """goc_id now lives on the org and is set via PATCH /org (self-service)."""
 
-    def test_create_org_without_goc_id_returns_null(self, client, admin_headers):
-        resp = client.post(
-            "/orgs",
-            json={"name": "No GOC Org", "plan": "free"},
-            headers=admin_headers,
-        )
-        assert resp.status_code == 201
-        assert resp.json()["goc_id"] is None
+    def test_org_starts_without_goc_id(self, client, free_org):
+        resp = client.get("/me", headers=free_org["headers"])
+        assert resp.status_code == 200
+        assert resp.json()["org"]["goc_id"] is None
 
-    def test_create_org_with_goc_id_null_returns_null(self, client, admin_headers):
-        resp = client.post(
-            "/orgs",
-            json={"name": "Null GOC Org", "plan": "free", "goc_id": None},
-            headers=admin_headers,
+    def test_patch_org_sets_goc_id(self, client, free_org):
+        resp = client.patch(
+            "/org", json={"goc_id": "GOC-12345"}, headers=free_org["headers"]
         )
-        assert resp.status_code == 201
-        assert resp.json()["goc_id"] is None
+        assert resp.status_code == 200
+        assert resp.json()["goc_id"] == "GOC-12345"
 
-    def test_create_org_goc_id_max_length_60(self, client, admin_headers):
-        """goc_id field has max_length=60; exactly 60 chars must succeed."""
+    def test_patch_org_goc_id_max_length_60(self, client, free_org):
         goc = "G" * 60
-        resp = client.post(
-            "/orgs",
-            json={"name": "Long GOC Org", "plan": "free", "goc_id": goc},
-            headers=admin_headers,
+        resp = client.patch(
+            "/org", json={"goc_id": goc}, headers=free_org["headers"]
         )
-        assert resp.status_code == 201
+        assert resp.status_code == 200
         assert resp.json()["goc_id"] == goc
 
-    def test_create_org_goc_id_too_long_returns_422(self, client, admin_headers):
-        """goc_id longer than 60 chars must be rejected with 422."""
+    def test_patch_org_goc_id_too_long_returns_422(self, client, free_org):
         goc = "G" * 61
-        resp = client.post(
-            "/orgs",
-            json={"name": "Too Long GOC Org", "plan": "free", "goc_id": goc},
-            headers=admin_headers,
+        resp = client.patch(
+            "/org", json={"goc_id": goc}, headers=free_org["headers"]
         )
         assert resp.status_code == 422
+
+    def test_patch_org_clears_goc_id_with_null(self, client, free_org):
+        client.patch("/org", json={"goc_id": "X-1"}, headers=free_org["headers"])
+        resp = client.patch(
+            "/org", json={"goc_id": None}, headers=free_org["headers"]
+        )
+        assert resp.json()["goc_id"] is None

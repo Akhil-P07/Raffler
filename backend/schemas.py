@@ -9,40 +9,82 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 # ---------------------------------------------------------------------------
-# Auth / orgs
+# Auth (user accounts) + admin allowlist
 # ---------------------------------------------------------------------------
+
+
+class SignupRequest(BaseModel):
+    """Account self-signup (email + password). Distinct from the buyer-facing
+    RegisterRequest used by the public /register/{token} flow."""
+
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=128)
+    # Optional org/club name shown on tickets; defaults to the email's prefix.
+    org_name: str | None = Field(default=None, max_length=120)
+
+    @field_validator("org_name")
+    @classmethod
+    def strip_org_name(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip()
+        return v or None
 
 
 class LoginRequest(BaseModel):
     email: EmailStr
+    password: str = Field(min_length=1, max_length=128)
+
+
+class AdminLoginRequest(BaseModel):
+    email: EmailStr
     password: str = Field(min_length=1, max_length=256)
 
 
-class TokenResponse(BaseModel):
+class OrgSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    name: str
+    plan: str
+    goc_id: str | None
+
+
+class AuthResponse(BaseModel):
+    """Returned by register/login — a session token plus the account context."""
+
     access_token: str
     token_type: str = "bearer"
     expires_in: int  # seconds
+    email: EmailStr
+    org: OrgSummary
 
 
-class CreateOrgRequest(BaseModel):
-    name: str = Field(min_length=1, max_length=120)
-    plan: str = Field(default="free")
-    # Games of Chance ID, printed on tickets "if applicable" (NY/RIT rules).
+class TokenResponse(BaseModel):
+    """Bare token (admin login)."""
+
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
+
+
+class MeResponse(BaseModel):
+    email: EmailStr
+    org: OrgSummary
+
+
+class UpdateOrgRequest(BaseModel):
+    name: str | None = Field(default=None, max_length=120)
     goc_id: str | None = Field(default=None, max_length=60)
 
     @field_validator("name")
     @classmethod
-    def strip_name(cls, v: str) -> str:
+    def strip_name(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
         v = v.strip()
         if not v:
             raise ValueError("name must not be empty")
-        return v
-
-    @field_validator("plan")
-    @classmethod
-    def valid_plan(cls, v: str) -> str:
-        if v not in ("free", "club"):
-            raise ValueError("plan must be 'free' or 'club'")
         return v
 
     @field_validator("goc_id")
@@ -54,18 +96,19 @@ class CreateOrgRequest(BaseModel):
         return v or None
 
 
-class OrgCreatedResponse(BaseModel):
-    id: str
-    name: str
-    plan: str
-    goc_id: str | None = None
-    # Plaintext API key — shown exactly once, never stored or retrievable again.
-    api_key: str
+class PremiumEmailRequest(BaseModel):
+    email: EmailStr
 
 
-class RotatedKeyResponse(BaseModel):
-    id: str
-    api_key: str
+class PremiumEmailResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    email: EmailStr
+    source: str = "allowlist"  # 'allowlist' (DB) or 'env'
+
+
+class GoogleAuthUrlResponse(BaseModel):
+    auth_url: str
 
 
 # ---------------------------------------------------------------------------
@@ -196,12 +239,14 @@ class GenerateTicketsResponse(BaseModel):
 
 
 class RegisterInfoResponse(BaseModel):
-    """Returned by GET /register/{token}. Deliberately minimal: no raffle_id,
-    no ticket sequence, nothing that reveals the namespace."""
+    """Returned by GET /register/{token} to a logged-in seller. `owned` says
+    whether the ticket belongs to the seller's own org; ticket/raffle details
+    are only included when owned (a ticket from another org reveals nothing)."""
 
-    ticket_number: int
-    raffle_name: str
-    registered: bool
+    owned: bool
+    ticket_number: int | None = None
+    raffle_name: str | None = None
+    registered: bool | None = None
 
 
 class RegisterRequest(BaseModel):

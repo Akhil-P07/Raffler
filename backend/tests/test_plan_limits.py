@@ -36,7 +36,7 @@ class TestFreeRaffleLimit:
         finally:
             db_session.close()
 
-        register_ticket(client, token)
+        register_ticket(client, token, free_org["headers"])
         client.post(
             f"/raffles/{raffle_id}/draw",
             json={"prize_count": 1},

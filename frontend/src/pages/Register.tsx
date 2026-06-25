@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import {
   errorMessage,
   getRegisterInfo,
+  isUnauthorized,
   submitRegistration,
 } from "../api/client";
 import type { RegisterConfirmation, RegisterInfo } from "../api/types";
@@ -11,21 +12,24 @@ type LoadState =
   | { kind: "loading" }
   | { kind: "ready"; info: RegisterInfo }
   | { kind: "already"; info: RegisterInfo }
+  | { kind: "notowned" }
   | { kind: "notfound" }
   | { kind: "done"; confirmation: RegisterConfirmation };
 
 /**
- * Public buyer page, opened by scanning a ticket's QR. Token-based: no API
- * key, no org data. Submit is guarded against double-submit.
+ * Seller-side ticket registration. The seller scans a ticket's QR (which opens
+ * this page in their logged-in portal); the server confirms the ticket belongs
+ * to their org, then the seller enters the buyer's name + email. Buyers never
+ * self-register.
  */
 export default function Register() {
   const { token = "" } = useParams();
+  const navigate = useNavigate();
   const [state, setState] = useState<LoadState>({ kind: "loading" });
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Hard guard so a fast double-tap can't fire two POSTs.
   const inFlight = useRef(false);
 
   useEffect(() => {
@@ -33,23 +37,26 @@ export default function Register() {
     getRegisterInfo(token)
       .then((info) => {
         if (cancelled) return;
-        // Distinct state for an already-registered ticket so the buyer sees a
-        // clear "already entered" message instead of the form.
-        setState(
-          info.registered ? { kind: "already", info } : { kind: "ready", info }
-        );
+        if (!info.owned) setState({ kind: "notowned" });
+        else if (info.registered) setState({ kind: "already", info });
+        else setState({ kind: "ready", info });
       })
-      .catch(() => !cancelled && setState({ kind: "notfound" }));
+      .catch((err) => {
+        if (cancelled) return;
+        // A 401 means the session lapsed; the route guard will send us to login.
+        if (isUnauthorized(err)) navigate("/login", { replace: true });
+        else setState({ kind: "notfound" });
+      });
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, [token, navigate]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (inFlight.current || submitting) return;
     if (!name.trim()) {
-      setError("Please enter your name.");
+      setError("Please enter the buyer's name.");
       return;
     }
     inFlight.current = true;
@@ -59,7 +66,7 @@ export default function Register() {
       const confirmation = await submitRegistration(token, name, email);
       setState({ kind: "done", confirmation });
     } catch (err) {
-      setError(errorMessage(err, "Could not register. Please try again."));
+      setError(errorMessage(err, "Could not register this ticket."));
     } finally {
       setSubmitting(false);
       inFlight.current = false;
@@ -67,10 +74,10 @@ export default function Register() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50 p-4">
+    <div className="flex min-h-[80vh] items-center justify-center bg-gray-50 p-4">
       <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow">
         {state.kind === "loading" && (
-          <p className="text-center text-gray-500">Loading…</p>
+          <p className="text-center text-gray-500">Loading ticket…</p>
         )}
 
         {state.kind === "notfound" && (
@@ -78,8 +85,20 @@ export default function Register() {
             <div className="mb-2 text-4xl">🎫</div>
             <h1 className="text-lg font-bold text-gray-900">Ticket not found</h1>
             <p className="mt-2 text-sm text-gray-600">
-              This registration link isn't valid. Double-check you scanned the
-              QR on your ticket.
+              This QR doesn't match a ticket. Re-scan the ticket and try again.
+            </p>
+          </div>
+        )}
+
+        {state.kind === "notowned" && (
+          <div className="text-center">
+            <div className="mb-2 text-4xl">🚫</div>
+            <h1 className="text-lg font-bold text-gray-900">
+              Not your organization's ticket
+            </h1>
+            <p className="mt-2 text-sm text-gray-600">
+              This ticket belongs to a different organization, so it can't be
+              registered from your account.
             </p>
           </div>
         )}
@@ -93,7 +112,7 @@ export default function Register() {
             <p className="mt-2 text-sm text-gray-600">
               Ticket #{state.info.ticket_number} for{" "}
               <span className="font-medium">{state.info.raffle_name}</span> is
-              already entered. You're all set — good luck!
+              already entered.
             </p>
           </div>
         )}
@@ -104,7 +123,8 @@ export default function Register() {
               {state.info.raffle_name}
             </h1>
             <p className="mb-4 mt-1 text-center text-sm text-gray-500">
-              Registering ticket #{state.info.ticket_number}
+              Registering ticket #{state.info.ticket_number} — enter the buyer's
+              details.
             </p>
             <form onSubmit={onSubmit} className="space-y-3" noValidate>
               <div>
@@ -112,7 +132,7 @@ export default function Register() {
                   htmlFor="name"
                   className="block text-sm font-medium text-gray-700"
                 >
-                  Name
+                  Buyer name
                 </label>
                 <input
                   id="name"
@@ -122,7 +142,7 @@ export default function Register() {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-3 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
-                  autoComplete="name"
+                  autoComplete="off"
                 />
               </div>
               <div>
@@ -130,7 +150,7 @@ export default function Register() {
                   htmlFor="email"
                   className="block text-sm font-medium text-gray-700"
                 >
-                  Email
+                  Buyer email
                 </label>
                 <input
                   id="email"
@@ -139,13 +159,15 @@ export default function Register() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-3 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
-                  autoComplete="email"
+                  autoComplete="off"
                   inputMode="email"
                 />
               </div>
-              {/* Rendered unconditionally so screen readers announce errors
-                  written into the live region after a failed submit. */}
-              <p role="alert" aria-live="assertive" className="text-sm text-red-600">
+              <p
+                role="alert"
+                aria-live="assertive"
+                className="text-sm text-red-600"
+              >
                 {error ?? ""}
               </p>
               <button
@@ -153,27 +175,30 @@ export default function Register() {
                 disabled={submitting}
                 className="w-full rounded-lg bg-brand py-3 font-semibold text-white hover:bg-brand-dark disabled:opacity-60"
               >
-                {submitting ? "Registering…" : "Register"}
+                {submitting ? "Registering…" : "Register ticket"}
               </button>
             </form>
-            <p className="mt-3 text-center text-xs text-gray-400">
-              We only collect your name and email to contact you if you win.
-            </p>
           </>
         )}
 
         {state.kind === "done" && (
           <div className="text-center">
             <div className="mb-2 text-4xl">🎉</div>
-            <h1 className="text-lg font-bold text-gray-900">You're entered!</h1>
+            <h1 className="text-lg font-bold text-gray-900">Registered!</h1>
             <p className="mt-2 text-sm text-gray-600">
-              Thanks {state.confirmation.name} — ticket #
-              {state.confirmation.ticket_number} for{" "}
+              Ticket #{state.confirmation.ticket_number} for{" "}
               <span className="font-medium">
                 {state.confirmation.raffle_name}
               </span>{" "}
-              is registered. Good luck!
+              is now entered under {state.confirmation.name}.
             </p>
+            <button
+              type="button"
+              onClick={() => navigate("/")}
+              className="mt-4 w-full rounded-lg border border-gray-300 py-2 font-semibold text-gray-700 hover:bg-gray-50"
+            >
+              Back to dashboard
+            </button>
           </div>
         )}
       </div>

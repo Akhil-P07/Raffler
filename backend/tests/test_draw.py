@@ -23,7 +23,9 @@ def _setup_drawn_raffle(client, app_and_db, org):
         db_session.close()
 
     for i, token in enumerate(tokens):
-        register_ticket(client, token, name=f"Person {i}", email=f"p{i}@test.com")
+        register_ticket(
+            client, token, org["headers"], name=f"Person {i}", email=f"p{i}@test.com"
+        )
 
     resp = client.post(
         f"/raffles/{raffle_id}/draw",
@@ -82,7 +84,9 @@ class TestDraw:
             db_session.close()
 
         for i, token in enumerate(tokens):
-            register_ticket(client, token, name=f"Person {i}", email=f"p{i}@test.com")
+            register_ticket(
+                client, token, club_org["headers"], name=f"Person {i}", email=f"p{i}@test.com"
+            )
 
         resp = client.post(
             f"/raffles/{raffle_id}/draw",

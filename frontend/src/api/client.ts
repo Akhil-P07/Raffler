@@ -1,8 +1,11 @@
 import axios, { AxiosError } from "axios";
 import type {
+  AuthResponse,
   DrawResponse,
   Entry,
   GenerateTicketsResponse,
+  Me,
+  OrgSummary,
   Raffle,
   RaffleDetail,
   RaffleInput,
@@ -18,32 +21,34 @@ import type {
 // the real API origin.
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
 
-const API_KEY_STORAGE = "raffler_api_key";
+const SESSION_STORAGE = "raffler_session";
 
-export function getApiKey(): string | null {
-  return localStorage.getItem(API_KEY_STORAGE);
+export function getSession(): string | null {
+  return localStorage.getItem(SESSION_STORAGE);
 }
 
-export function setApiKey(key: string): void {
-  localStorage.setItem(API_KEY_STORAGE, key.trim());
+export function setSession(token: string): void {
+  localStorage.setItem(SESSION_STORAGE, token.trim());
 }
 
-export function clearApiKey(): void {
-  localStorage.removeItem(API_KEY_STORAGE);
+export function clearSession(): void {
+  localStorage.removeItem(SESSION_STORAGE);
 }
 
-// Authenticated client: injects the org API key on every request.
-const authed = axios.create({ baseURL: API_BASE });
+// withCredentials lets the OAuth state cookie (set by /auth/google/login) ride
+// along; the session itself is a Bearer token, not a cookie.
+// Authenticated client: injects the session Bearer token on every request.
+const authed = axios.create({ baseURL: API_BASE, withCredentials: true });
 authed.interceptors.request.use((config) => {
-  const key = getApiKey();
-  if (key) {
-    config.headers.set("X-API-Key", key);
+  const token = getSession();
+  if (token) {
+    config.headers.set("Authorization", `Bearer ${token}`);
   }
   return config;
 });
 
-// Public client: NO API key. Used for the buyer registration flow only.
-const pub = axios.create({ baseURL: API_BASE });
+// Unauthenticated client: login/signup + the Google OAuth URL fetch.
+const pub = axios.create({ baseURL: API_BASE, withCredentials: true });
 
 /** Normalize a backend error into a plain message for the UI. */
 export function errorMessage(err: unknown, fallback = "Something went wrong."): string {
@@ -51,13 +56,53 @@ export function errorMessage(err: unknown, fallback = "Something went wrong."): 
     const detail = err.response?.data?.detail;
     if (typeof detail === "string") return detail;
     if (Array.isArray(detail) && detail[0]?.msg) return detail[0].msg;
-    if (err.response?.status === 401) return "Invalid or missing API key.";
+    if (err.response?.status === 401) return "Please sign in again.";
   }
   return fallback;
 }
 
 export function isUnauthorized(err: unknown): boolean {
   return err instanceof AxiosError && err.response?.status === 401;
+}
+
+// --- Auth -----------------------------------------------------------------
+
+export async function signup(
+  email: string,
+  password: string,
+  orgName?: string
+): Promise<AuthResponse> {
+  const body: Record<string, string> = { email, password };
+  if (orgName?.trim()) body.org_name = orgName.trim();
+  const res = (await pub.post<AuthResponse>("/auth/register", body)).data;
+  setSession(res.access_token);
+  return res;
+}
+
+export async function login(
+  email: string,
+  password: string
+): Promise<AuthResponse> {
+  const res = (await pub.post<AuthResponse>("/auth/login", { email, password }))
+    .data;
+  setSession(res.access_token);
+  return res;
+}
+
+export async function getMe(): Promise<Me> {
+  return (await authed.get<Me>("/me")).data;
+}
+
+export async function updateOrg(body: {
+  name?: string;
+  goc_id?: string | null;
+}): Promise<OrgSummary> {
+  return (await authed.patch<OrgSummary>("/org", body)).data;
+}
+
+/** Fetch the Google consent URL (or throw if Google login isn't configured). */
+export async function googleAuthUrl(): Promise<string> {
+  return (await pub.get<{ auth_url: string }>("/auth/google/login")).data.auth_url;
 }
 
 // --- Raffles --------------------------------------------------------------
@@ -252,8 +297,9 @@ export async function listWinners(raffleId: string): Promise<Winner[]> {
 
 // --- Public registration --------------------------------------------------
 
+// Registration is now a logged-in seller action (authed), not public.
 export async function getRegisterInfo(token: string): Promise<RegisterInfo> {
-  return (await pub.get<RegisterInfo>(`/register/${token}`)).data;
+  return (await authed.get<RegisterInfo>(`/register/${token}`)).data;
 }
 
 export async function submitRegistration(
@@ -262,6 +308,6 @@ export async function submitRegistration(
   email: string
 ): Promise<RegisterConfirmation> {
   return (
-    await pub.post<RegisterConfirmation>(`/register/${token}`, { name, email })
+    await authed.post<RegisterConfirmation>(`/register/${token}`, { name, email })
   ).data;
 }

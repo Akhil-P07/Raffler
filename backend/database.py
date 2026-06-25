@@ -71,12 +71,13 @@ class Base(DeclarativeBase):
 
 
 class Organization(Base):
+    """A tenant. Each user account owns exactly one organization, whose name +
+    Games-of-Chance ID appear on its raffle tickets."""
+
     __tablename__ = "organizations"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     name: Mapped[str] = mapped_column(String, nullable=False)
-    # bcrypt hash of the API key — the plaintext key is shown once at creation.
-    api_key: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     plan: Mapped[str] = mapped_column(String, default="free", nullable=False)
     # NY/RIT raffle rules: the org's Games of Chance ID, printed on tickets
     # "if applicable". Optional — orgs without one just omit the line.
@@ -85,10 +86,50 @@ class Organization(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
+    user: Mapped["User"] = relationship(
+        back_populates="org", cascade="all, delete-orphan", uselist=False
+    )
     # passive_deletes lets the DB's ON DELETE CASCADE own the cascade rather
     # than SQLAlchemy emitting its own child DELETEs.
     raffles: Mapped[list["Raffle"]] = relationship(
         back_populates="org", cascade="all, delete-orphan", passive_deletes=True
+    )
+
+
+class User(Base):
+    """A login identity. Created by self-signup (email+password or Google).
+    Owns one organization. There are no API keys — all access is session-based.
+    """
+
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    email: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
+    # bcrypt hash; NULL for Google-only accounts that never set a password.
+    password_hash: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Google "sub" claim, set when the account is linked to Google sign-in.
+    google_sub: Mapped[str | None] = mapped_column(String, nullable=True)
+    org_id: Mapped[str] = mapped_column(
+        String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    org: Mapped["Organization"] = relationship(back_populates="user")
+
+
+class PremiumEmail(Base):
+    """Allowlist of emails granted the club (premium) plan. The platform admin
+    manages this; membership is also unioned with the PREMIUM_EMAILS env list.
+    """
+
+    __tablename__ = "premium_emails"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    email: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
 

@@ -17,6 +17,7 @@ def _register_all(client, app_and_db, org, raffle_id, count):
         resp = client.post(
             f"/register/{token}",
             json={"name": f"User {i}", "email": f"user{i}@example.com"},
+            headers=org["headers"],
         )
         assert resp.status_code == 201
     return tokens
@@ -138,6 +139,7 @@ class TestExportEntries:
             resp = client.post(
                 f"/register/{token}",
                 json={"name": name, "email": "safe@example.com"},
+                headers=free_org["headers"],
             )
             assert resp.status_code == 201
 

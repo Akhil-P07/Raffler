@@ -16,8 +16,9 @@ this platform** — ticket sales and payments are handled offline by the club.
 ```
 BEFORE   Admin generates N tickets → downloads print sheet → prints tickets.
          Each ticket shows a human number AND an unguessable QR token.
-AT EVENT Seller takes cash offline → hands over ticket → QR is scanned →
-         buyer submits name + email → entry linked to that ticket's token.
+AT EVENT Seller takes cash offline → hands over ticket → seller scans the QR
+         in their logged-in portal → enters the buyer's name + email. The
+         server confirms the ticket belongs to the seller's org first.
 AFTER    Admin opens dashboard → Draw → winner selected with `secrets`,
          recorded immutably, shown with email to contact offline.
 ```
@@ -29,12 +30,9 @@ AFTER    Admin opens dashboard → Draw → winner selected with `secrets`,
 cd backend
 python -m venv .venv && . .venv/Scripts/activate   # Windows; use bin/activate on *nix
 pip install -r requirements.txt
+cp .env.example .env          # then set SECRET_KEY — the app refuses the default
 uvicorn main:app --reload
 ```
-
-On first start with an empty database, the backend **seeds the founding org
-"RIT AI Club" (Club plan)** and prints its API key **once** to the server log.
-Copy that key — you'll paste it into the admin UI.
 
 ```bash
 # Frontend — Vite proxies /api to the backend, so no CORS/env setup in dev
@@ -43,7 +41,9 @@ npm install
 npm run dev      # http://localhost:5173
 ```
 
-Open http://localhost:5173, paste the seeded API key, and you're in.
+Open http://localhost:5173 and **sign up** (email + password, or Google if
+configured). Anyone can self-register into the **free tier**; emails on the
+premium allowlist get the **club tier**.
 
 > **Python note:** the pinned dependency versions are chosen to have prebuilt
 > wheels on Python 3.12–3.14 (e.g. `psycopg` v3 instead of `psycopg2`,
@@ -61,14 +61,22 @@ docker compose up --build
 
 ## API reference
 
-All endpoints except `/register/{token}` require `X-API-Key: <your_key>`.
-Admin/platform endpoints (`/orgs*`) require a JWT from `POST /auth/login`.
+Auth is **session-based**: sign up (Google or email/password), then send the
+returned token as `Authorization: Bearer <token>`. There are no API keys.
+**Every** route below (including ticket registration) requires a session —
+buyers never self-register; the logged-in seller registers each ticket.
 
 | Method | Path | Notes |
 |--------|------|-------|
-| POST | `/auth/login` | Admin JWT (15 min). Rate-limited 10/min. |
-| POST | `/orgs` | Create org + return API key once (JWT). Optional `goc_id`. |
-| POST | `/orgs/{org_id}/rotate-key` | Rotate API key (JWT). |
+| POST | `/auth/register` | Self-signup (email + password). Returns a session token. Free tier (or club if allowlisted). 10/min. |
+| POST | `/auth/login` | Email + password → session token. 10/min. |
+| GET | `/auth/google/login` | Returns the Google consent URL (`503` if Google isn't configured). |
+| GET | `/auth/google/callback` | Google redirect target → redirects to the SPA with a session token. |
+| GET | `/me` | Current account + org (plan, name, goc_id). |
+| PATCH | `/org` | Update your org name / Games-of-Chance ID. |
+| POST | `/auth/admin/login` | Super-admin login (manages the premium allowlist). |
+| GET/POST | `/admin/premium` | List / add premium-allowlist emails (admin). |
+| DELETE | `/admin/premium/{email}` | Remove an allowlisted email (admin). |
 | POST | `/raffles` | Create raffle (enforces plan limit → 403). Optional ticket-face metadata. |
 | GET | `/raffles` | List active raffles for your org. |
 | GET | `/raffles/{id}` | Detail + entry/ticket counts. |
@@ -82,8 +90,8 @@ Admin/platform endpoints (`/orgs*`) require a JWT from `POST /auth/login`.
 | GET | `/raffles/{id}/logos` | List logo metadata (`id`, `name`, `position`). |
 | GET | `/raffles/{id}/logos/{logo_id}` | Logo as `image/png`. |
 | DELETE | `/raffles/{id}/logos/{logo_id}` | Remove a logo. |
-| GET | `/register/{token}` | **Public.** Token info (number + raffle name). 20/min. |
-| POST | `/register/{token}` | **Public.** Submit name + email. 20/min. |
+| GET | `/register/{token}` | Seller scans a ticket: returns `owned` + (if owned) number/raffle/registered. |
+| POST | `/register/{token}` | Seller registers the buyer (name + email). 403 if the ticket isn't the seller's org. |
 | GET | `/raffles/{id}/entries` | List entries. |
 | GET | `/raffles/{id}/entries/export` | CSV download. |
 | POST | `/raffles/{id}/draw` | Draw winner(s). Idempotent. 5/min. |
@@ -112,9 +120,12 @@ uploader before upload.
 
 ## The three integrity rules (enforced, not documented)
 
-1. **Unguessable registration tokens.** The QR encodes a 32-char
-   `secrets.token_urlsafe` token, never the sequential ticket number. The token
-   path param is validated against its charset/length *before* any DB lookup.
+1. **Seller-authenticated registration.** The QR encodes a 32-char
+   `secrets.token_urlsafe` token (never the sequential number), validated for
+   charset/length before any DB lookup. Registration is done by the **logged-in
+   seller**, not the buyer: the server confirms the scanned ticket belongs to
+   the seller's org before accepting an entry, and reports `owned: false` (no
+   details) for another org's ticket. No public self-registration → no theft.
 2. **Draws are final and verifiable.** A raffle draws once; re-calling returns
    the recorded winners (`already_drawn: true`) and never re-runs the RNG.
    Selection uses `secrets.SystemRandom` (not seedable). The raffle row is
@@ -134,13 +145,26 @@ uploader before upload.
 
 "Active" = `status != 'drawn'` AND `deleted_at IS NULL`. Over-limit → 403.
 
+## Authentication & access control
+
+- **Session-based, no API keys.** Login (Google or email/password) returns a
+  signed JWT session token; org-scoped routes resolve the org from it via a
+  single shared `require_org` dependency (404, not 403, on ownership misses).
+- **Open free signup; premium by allowlist.** Anyone can self-register into the
+  free tier. Emails in the `PREMIUM_EMAILS` env list — plus any added by the
+  super-admin via `POST /admin/premium` — get the **club** plan, re-evaluated on
+  every login so promote/demote takes effect on next sign-in.
+- **Google OAuth** is optional (config-gated): the backend builds the consent
+  URL with a signed CSRF state, exchanges the code server-side, and redirects
+  the SPA back with a session token. If unconfigured, `/auth/google/*` returns
+  `503` and email/password still works.
+- Passwords are **bcrypt-hashed**; the super-admin uses constant-time
+  credential comparison.
+
 ## Security highlights
 
-- API keys are **bcrypt-hashed**; the plaintext is shown once. Keys are
-  `rk_<org_id>.<secret>` — the embedded org id gives an O(1) lookup so we never
-  have to bcrypt-verify against every org (salted hashes aren't queryable).
-- JWT admin auth (15 min), constant-time credential comparison on login.
-- Per-IP rate limits via slowapi (login 10, register 20, draw 5, default 100 /min).
+- Per-IP rate limits via slowapi (login/signup/admin-login 10, draw 5,
+  default 100 /min).
 - Security headers on every response (CSP, `X-Frame-Options: DENY`, nosniff,
   Referrer-Policy). CORS pinned to the exact `FRONTEND_ORIGIN`.
 - Pydantic validation on every body; `EmailStr`; name stripped + length-capped;
@@ -164,7 +188,10 @@ Two services + one Postgres plugin, in one project:
 2. **Backend service** — root directory `backend/`. Start command (or Procfile):
    `uvicorn main:app --host 0.0.0.0 --port $PORT`. Set `SECRET_KEY` (generate
    with `python -c "import secrets; print(secrets.token_urlsafe(48))"`),
-   `BASE_URL`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `FRONTEND_ORIGIN`, `API_ORIGIN`.
+   `BASE_URL`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `FRONTEND_ORIGIN`, `API_ORIGIN`,
+   `PREMIUM_EMAILS`, and (optional) `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` /
+   `GOOGLE_REDIRECT_URI` (`https://yourapi.com/auth/google/callback`, which must
+   match the Authorized Redirect URI in the Google Cloud console).
 3. **Frontend service** — root directory `frontend/`. Build `npm run build`,
    start `npx serve -s dist -l $PORT`. Set build-time `VITE_API_BASE` and
    `VITE_BASE_URL` to the real domains.

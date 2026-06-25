@@ -21,7 +21,7 @@ def _full_setup(client, app_and_db, org):
     finally:
         db_session.close()
 
-    register_ticket(client, token)
+    register_ticket(client, token, org["headers"])
     return raffle_id, ticket_id
 
 

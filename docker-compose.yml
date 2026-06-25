@@ -32,6 +32,12 @@ services:
       ADMIN_PASSWORD: changeme
       FRONTEND_ORIGIN: http://localhost:5173
       API_ORIGIN: http://localhost:8000
+      # Emails granted the club plan (everyone else self-signs-up as free).
+      PREMIUM_EMAILS: ""
+      # Optional Google OAuth — leave blank to use email/password login only.
+      GOOGLE_CLIENT_ID: ""
+      GOOGLE_CLIENT_SECRET: ""
+      GOOGLE_REDIRECT_URI: http://localhost:8000/auth/google/callback
     ports:
       - "8000:8000"
 
