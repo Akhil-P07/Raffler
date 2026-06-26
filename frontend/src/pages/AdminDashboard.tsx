@@ -47,6 +47,24 @@ export default function AdminDashboard() {
     if (countdownInterval.current) clearInterval(countdownInterval.current);
   }, []);
 
+  // Live-refresh the selected raffle's entries + counts while the page is open,
+  // so registrations coming in from sellers' devices appear without a manual
+  // tab refresh. EntryTable keeps its own selection/search/sort across updates.
+  useEffect(() => {
+    if (!selectedId) return;
+    const id = setInterval(() => {
+      // Don't disturb an in-progress draw or the countdown reveal.
+      if (drawInFlight.current || countdown !== null) return;
+      Promise.all([getRaffle(selectedId), listEntries(selectedId)])
+        .then(([d, e]) => {
+          setDetail(d);
+          setEntries(e);
+        })
+        .catch(() => {});
+    }, 8000);
+    return () => clearInterval(id);
+  }, [selectedId, countdown]);
+
   async function loadRaffles() {
     setRaffles(await listRaffles());
   }

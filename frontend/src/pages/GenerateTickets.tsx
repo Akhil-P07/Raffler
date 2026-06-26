@@ -41,6 +41,17 @@ export default function GenerateTickets() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [raffleId]);
 
+  // Sellers register buyers on their own devices while this page is open. Poll
+  // the ticket list so each card's Registered/Unregistered badge updates live,
+  // without a manual tab refresh. Cards keep their loaded QR (keyed by id).
+  useEffect(() => {
+    if (!raffleId) return;
+    const id = setInterval(() => {
+      listTickets(raffleId).then(setTickets).catch(() => {});
+    }, 8000);
+    return () => clearInterval(id);
+  }, [raffleId]);
+
   async function onGenerate(e: React.FormEvent) {
     e.preventDefault();
     if (busy) return;

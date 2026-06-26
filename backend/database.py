@@ -4,6 +4,8 @@ The schema mirrors the SQL in the spec exactly: organizations → raffles →
 tickets → entries, plus an immutable winners table. The store is SQLite — a
 file on disk locally, and a file on a mounted persistent volume in production.
 """
+import logging
+import os
 import secrets
 import uuid
 from datetime import datetime
@@ -29,6 +31,8 @@ from sqlalchemy.orm import (
 )
 
 from config import settings
+
+logger = logging.getLogger("raffler.db")
 
 DATABASE_URL = settings.DATABASE_URL
 _is_sqlite = DATABASE_URL.startswith("sqlite")
@@ -389,8 +393,39 @@ def _add_missing_columns() -> None:
                 )
 
 
+def _prepare_sqlite_storage() -> None:
+    """For a file-backed SQLite DB, ensure the parent directory exists and warn
+    loudly if the file lives on the container's ephemeral disk.
+
+    On Railway the filesystem is rebuilt on every redeploy, so a DB at a
+    relative/ephemeral path silently loses all accounts and data each deploy.
+    Persist it by attaching a Volume (e.g. mounted at /data) and setting
+    DATABASE_URL=sqlite:////data/raffler.db (four slashes = absolute path).
+    """
+    if not _is_sqlite:
+        return
+    path = DATABASE_URL.split("sqlite:///", 1)[-1]
+    if not path or path.startswith(":memory:"):
+        return
+    abs_path = os.path.abspath(path)
+    parent = os.path.dirname(abs_path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    # A DB outside a recognised mounted-volume root is almost certainly ephemeral.
+    persistent_roots = ("/data", "/mnt", "/var/lib", "/storage")
+    if not any(abs_path.replace("\\", "/").startswith(r) for r in persistent_roots):
+        logger.warning(
+            "SQLite DB at %s is NOT on a recognised persistent volume. On "
+            "Railway, attach a Volume (mount path /data) and set "
+            "DATABASE_URL=sqlite:////data/raffler.db, or every redeploy will "
+            "reset all accounts and data.",
+            abs_path,
+        )
+
+
 def init_db() -> None:
     """Create tables if they do not exist. Called on app startup."""
+    _prepare_sqlite_storage()
     Base.metadata.create_all(bind=engine)
     _add_missing_columns()
 

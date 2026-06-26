@@ -170,6 +170,15 @@ def _wrap(draw: ImageDraw.ImageDraw, text: str, font, max_w: int) -> list[str]:
     return lines
 
 
+def _ellipsize(draw: ImageDraw.ImageDraw, text: str, font, max_w: int) -> str:
+    """Trim `text` with a trailing ellipsis until it fits within max_w."""
+    if draw.textlength(text, font=font) <= max_w:
+        return text
+    while text and draw.textlength(text + "…", font=font) > max_w:
+        text = text[:-1]
+    return text + "…"
+
+
 def _vertical_text(text: str, font) -> Image.Image:
     """Render `text` rotated 90° (reads bottom-to-top), transparent background."""
     tmp = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
@@ -184,7 +193,7 @@ def _vertical_text(text: str, font) -> Image.Image:
 # A wide strip so the print sheet stacks tickets vertically across the full
 # page width — you separate them with straight horizontal cuts and waste no
 # paper. Rendered at the exact width it prints at, so no scaling is needed.
-_TW = 1180  # full A4 content width at 150 DPI (1240 page - 2*30 margin)
+_TW = 1240  # full A4 page width at 150 DPI — ticket spans edge to edge (no margin)
 _TH = 270
 _STUB_W = 240  # left tear-off stub (kept by the seller: serial + QR + write-in)
 _SERIAL_W = 48  # right serial strip
@@ -358,6 +367,142 @@ def render_ticket(
     return img
 
 
+# --- layout: a 10:11 portrait CARD (the buyer's emailed keepsake) --------
+# A squarish card (width:height = 10:11) carrying the raffle details and the
+# registration QR, sized for a crisp single-page PDF at 150 DPI. This is the
+# buyer-facing copy emailed on registration — distinct from the wide print
+# strip the seller tears off and keeps. Only single_ticket_pdf uses it; the
+# print sheet and admin preview keep the regular wide ticket.
+_CARD_W, _CARD_H = 1000, 1100
+_BRAND_RGB = (247, 105, 2)  # RIT orange (#f76902)
+_BRAND_LIGHT_RGB = (255, 247, 242)  # #fff7f2
+_MUTED_RGB = (110, 110, 110)
+
+
+def render_ticket_card(
+    number: int, token: str, info: TicketSheetInfo
+) -> Image.Image:
+    """Render the buyer's emailed ticket as a portrait 10:11 card: an orange
+    header (org + RAFFLE + name), a highlighted ticket-number/price block, the
+    prize and drawing details, the registration QR, and the legally-required
+    'need not be present' statement."""
+    img = Image.new("RGB", (_CARD_W, _CARD_H), "white")
+    draw = ImageDraw.Draw(img)
+
+    pad = 56
+    cx = _CARD_W // 2
+    cw = _CARD_W - 2 * pad
+
+    f_eyebrow = _load_font(22)
+    f_title = _load_font(64, bold=True)
+    f_name = _load_font(30, bold=True)
+    f_small = _load_font(18, bold=True)
+    f_serial = _load_font(46, bold=True)
+    f_price = _load_font(40, bold=True)
+    f_label = _load_font(24, bold=True)
+    f_body = _load_font(24)
+    f_note = _load_font(18)
+    f_stmt = _load_font(23, bold=True)
+
+    def center(text: str, font, y: int, fill="black") -> None:
+        w = draw.textlength(text, font=font)
+        draw.text((cx - w / 2, y), text, font=font, fill=fill)
+
+    serial = f"#{info.event_code}-{number}" if info.event_code else f"#{number}"
+
+    # --- header band (brand orange) ---
+    header_h = 190
+    draw.rectangle([0, 0, _CARD_W, header_h], fill=_BRAND_RGB)
+    eyebrow = info.org_name
+    if info.goc_id:
+        eyebrow += f"  ·  GOC ID {info.goc_id}"
+    center(_ellipsize(draw, eyebrow, f_eyebrow, cw), f_eyebrow, 28, fill="white")
+    center("RAFFLE", f_title, 58, fill="white")
+    center(_ellipsize(draw, info.raffle_name, f_name, cw), f_name, 138, fill="white")
+
+    # outer frame
+    draw.rectangle([0, 0, _CARD_W - 1, _CARD_H - 1], outline="black", width=3)
+
+    # --- bottom anchors: the legal statement, then the QR above it ---
+    stmt_lines = _wrap(draw, NOT_PRESENT_STATEMENT, f_stmt, cw)
+    stmt_h = len(stmt_lines) * (f_stmt.size + 4)
+    stmt_y = _CARD_H - 40 - stmt_h
+    qr_px = 230
+    qr_y = stmt_y - 34 - qr_px
+
+    qr_full = _qr_image(token, box_size=6, border=1).resize(
+        (qr_px, qr_px), Image.NEAREST
+    )
+    img.paste(qr_full, (cx - qr_px // 2, qr_y))
+
+    sy = stmt_y
+    for line in stmt_lines:
+        center(line, f_stmt, sy)
+        sy += f_stmt.size + 4
+
+    # --- body flows between header and QR ---
+    y = header_h + 34
+    body_bottom = qr_y - 24  # never run into the QR
+
+    # Ticket-number + price highlight block.
+    box_h = 116
+    draw.rounded_rectangle(
+        [pad, y, _CARD_W - pad, y + box_h],
+        radius=14,
+        fill=_BRAND_LIGHT_RGB,
+        outline=_BRAND_RGB,
+        width=3,
+    )
+    draw.text((pad + 24, y + 20), "TICKET NO.", font=f_small, fill=_MUTED_RGB)
+    draw.text((pad + 24, y + 46), serial, font=f_serial, fill=_BRAND_RGB)
+    price = _price_text(info.ticket_price)
+    if price:
+        pw = draw.textlength(price, font=f_price)
+        lw = draw.textlength("PRICE", font=f_small)
+        draw.text(
+            (_CARD_W - pad - 24 - lw, y + 20), "PRICE", font=f_small, fill=_MUTED_RGB
+        )
+        draw.text(
+            (_CARD_W - pad - 24 - pw, y + 50), price, font=f_price, fill="black"
+        )
+    y += box_h + 30
+
+    def block(label: str, lines: list[str]) -> None:
+        nonlocal y
+        if y + f_label.size > body_bottom:
+            return
+        draw.text((pad, y), label, font=f_label, fill="black")
+        y += f_label.size + 8
+        for line in lines:
+            if y + f_body.size > body_bottom:
+                break
+            draw.text((pad, y), line, font=f_body, fill="black")
+            y += f_body.size + 6
+        y += 14
+
+    block("Enter to win:", _wrap(draw, info.prizes or "—", f_body, cw))
+
+    when = (
+        f"{_format_date(info.drawing_datetime)} · {_format_time(info.drawing_datetime)}"
+        if info.drawing_datetime is not None
+        else "Date to be announced"
+    )
+    draw_lines = [when]
+    if info.drawing_location:
+        draw_lines += _wrap(draw, info.drawing_location, f_body, cw)
+    block("Drawing held:", draw_lines)
+
+    # Special info / terms — small print, clipped above the QR.
+    if info.ticket_notes:
+        for line in _wrap(draw, info.ticket_notes, f_note, cw):
+            if y + f_note.size > body_bottom:
+                break
+            draw.text((pad, y), line, font=f_note, fill=_MUTED_RGB)
+            y += f_note.size + 3
+
+    return img
+
+
 def single_ticket_full_png(number: int, token: str, info: TicketSheetInfo) -> bytes:
     """One full ticket as PNG (used by the admin on-screen preview)."""
     logos = _decode_logos(info.logos, target_h=40)
@@ -367,10 +512,11 @@ def single_ticket_full_png(number: int, token: str, info: TicketSheetInfo) -> by
 
 
 def single_ticket_pdf(number: int, token: str, info: TicketSheetInfo) -> bytes:
-    """One full ticket as a single-page PDF (emailed to the buyer)."""
-    logos = _decode_logos(info.logos, target_h=40)
+    """The buyer's emailed ticket as a single-page PDF: a portrait 10:11 card
+    (raffle details + registration QR), not the wide seller strip used for
+    printing."""
     buf = io.BytesIO()
-    render_ticket(number, token, info, logos, show_write_in=False).save(
+    render_ticket_card(number, token, info).save(
         buf, format="PDF", resolution=150.0
     )
     return buf.getvalue()

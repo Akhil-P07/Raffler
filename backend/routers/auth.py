@@ -8,6 +8,7 @@ club plan to the orgs an allowlisted email owns. No API keys — all
 session-based.
 """
 import hmac
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -69,6 +70,8 @@ from security import (
 from services.email import send_invite_email
 
 router = APIRouter(tags=["auth"])
+
+logger = logging.getLogger("raffler.auth")
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -277,13 +280,19 @@ def google_login(response: Response) -> GoogleAuthUrlResponse:
     state, _ = create_oauth_state()
     # Bind the state to this browser via an HttpOnly cookie so the callback can
     # confirm the flow was started here (CSRF / forced-login protection).
+    #
+    # Frontend and backend are separate origins in production, so the cookie
+    # must ride the cross-site Google→backend redirect: that requires
+    # SameSite=None + Secure (only valid over HTTPS). Locally (http) fall back
+    # to Lax, which a browser won't drop for being non-Secure.
+    https = settings.API_ORIGIN.startswith("https")
     response.set_cookie(
         _OAUTH_STATE_COOKIE,
         state,
         max_age=600,
         httponly=True,
-        samesite="lax",
-        secure=settings.API_ORIGIN.startswith("https"),
+        samesite="none" if https else "lax",
+        secure=https,
     )
     return GoogleAuthUrlResponse(auth_url=google_auth_url(state))
 
@@ -298,29 +307,39 @@ def google_callback(
 ) -> RedirectResponse:
     front = settings.FRONTEND_ORIGIN.rstrip("/")
 
-    def _fail(reason: str) -> RedirectResponse:
+    def _fail(reason: str, detail: str) -> RedirectResponse:
+        # Log WHY (server-side only); the user just gets a generic error code.
+        logger.warning("Google OAuth callback failed (%s): %s", reason, detail)
         resp = RedirectResponse(url=f"{front}/login?error={reason}")
         resp.delete_cookie(_OAUTH_STATE_COOKIE)
         return resp
 
     if not settings.google_enabled:
-        return _fail("google_failed")
+        return _fail("google_failed", "Google OAuth is not configured")
+    if error:
+        return _fail("google_failed", f"Google returned error={error}")
+    if not code or not state:
+        return _fail("google_failed", "missing code or state in callback")
+    if not verify_oauth_state(state):
+        return _fail("google_failed", "state JWT invalid or expired")
     cookie_state = request.cookies.get(_OAUTH_STATE_COOKIE)
-    if (
-        error
-        or not code
-        or not state
-        or not verify_oauth_state(state)
-        or state != cookie_state
-    ):
-        return _fail("google_failed")
+    if state != cookie_state:
+        # Almost always a cross-site cookie problem: the state cookie set on
+        # /auth/google/login didn't ride the redirect back (SameSite/Secure, or
+        # a BASE/API origin mismatch between the two Railway services).
+        return _fail(
+            "google_failed",
+            f"state cookie mismatch (cookie_present={cookie_state is not None})",
+        )
 
     try:
         profile = google_exchange_code(code)
-    except ValueError:
-        return _fail("google_failed")
+    except ValueError as exc:
+        # Usually a GOOGLE_REDIRECT_URI / client-secret mismatch with the
+        # Google Cloud console, which makes the token exchange return non-200.
+        return _fail("google_failed", f"token exchange/profile fetch failed: {exc}")
     if not profile.get("email_verified"):
-        return _fail("email_unverified")
+        return _fail("email_unverified", "Google account email is not verified")
 
     email = _norm(profile["email"])
     user = db.scalar(select(User).where(User.email == email))
