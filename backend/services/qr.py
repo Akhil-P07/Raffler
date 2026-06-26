@@ -200,11 +200,17 @@ _SERIAL_W = 48  # right serial strip
 _WRITE_IN = "_" * 24  # blank pen write-in fallback
 
 
-def _decode_logos(raw_list: list[bytes], target_h: int) -> list[Image.Image]:
-    """Decode stored logo bytes, scale to target_h tall, and flatten onto white
-    (the ticket is white). Flattening means a transparent background renders as
-    clean white — never a black box — and removes alpha-edge halos. Bad bytes
-    are skipped rather than failing the whole ticket."""
+def _decode_logos(
+    raw_list: list[bytes], target_h: int, flatten: bool = True
+) -> list[Image.Image]:
+    """Decode stored logo bytes and scale to target_h tall. Bad bytes are
+    skipped rather than failing the whole ticket.
+
+    flatten=True (default): composite onto white and return RGB — right for the
+    white print ticket, where a transparent background should read as clean
+    white with no alpha-edge halos. flatten=False: keep the alpha channel (RGBA)
+    so the logo can be pasted onto a coloured background (the emailed card's
+    orange header) with its transparency preserved."""
     out: list[Image.Image] = []
     for raw in raw_list:
         try:
@@ -216,8 +222,11 @@ def _decode_logos(raw_list: list[bytes], target_h: int) -> list[Image.Image]:
             img = img.resize(
                 (max(1, int(img.width * scale)), target_h), Image.LANCZOS
             )
-        bg = Image.new("RGBA", img.size, (255, 255, 255, 255))
-        out.append(Image.alpha_composite(bg, img).convert("RGB"))
+        if flatten:
+            bg = Image.new("RGBA", img.size, (255, 255, 255, 255))
+            out.append(Image.alpha_composite(bg, img).convert("RGB"))
+        else:
+            out.append(img)
     return out
 
 
@@ -414,15 +423,15 @@ def render_ticket_card(
     serial = f"#{info.event_code}-{number}" if info.event_code else f"#{number}"
 
     # --- header (brand orange), height computed from its stacked contents ---
-    # The logo(s) sit on a white "chip" so any logo — transparent or not —
-    # reads cleanly against the orange.
-    chip_gap, chip_pad = 16, 12
-    chip_h = (logos[0].height + 2 * chip_pad) if logos else 0
+    # Logos are pasted with their own alpha, so a transparent logo blends into
+    # the orange instead of showing a white box.
+    logo_gap = 18
+    logo_h = logos[0].height if logos else 0
     top_pad = 28
 
     header_h = top_pad
     if logos:
-        header_h += chip_h + 18
+        header_h += logo_h + 18
     header_h += f_org.size + 4
     if info.goc_id:
         header_h += f_goc.size + 4
@@ -432,17 +441,14 @@ def render_ticket_card(
 
     hy = top_pad
     if logos:
-        total_w = sum(im.width for im in logos) + chip_gap * (len(logos) - 1)
-        chip_w = total_w + 2 * chip_pad
-        chip_x = cx - chip_w // 2
-        draw.rounded_rectangle(
-            [chip_x, hy, chip_x + chip_w, hy + chip_h], radius=12, fill="white"
-        )
-        lx = chip_x + chip_pad
+        total_w = sum(im.width for im in logos) + logo_gap * (len(logos) - 1)
+        lx = cx - total_w // 2
         for im in logos:
-            img.paste(im, (lx, hy + chip_pad))
-            lx += im.width + chip_gap
-        hy += chip_h + 18
+            # An RGBA logo masks itself (transparent areas show the orange);
+            # an opaque logo just pastes as-is.
+            img.paste(im, (lx, hy), im if im.mode == "RGBA" else None)
+            lx += im.width + logo_gap
+        hy += logo_h + 18
     center(_ellipsize(draw, info.org_name, f_org, cw), f_org, hy, fill="white")
     hy += f_org.size + 4
     if info.goc_id:
@@ -560,7 +566,7 @@ def single_ticket_pdf(number: int, token: str, info: TicketSheetInfo) -> bytes:
     """The buyer's emailed ticket as a single-page PDF: a portrait 10:11 card
     (logo + raffle details + registration QR), not the wide seller strip used
     for printing."""
-    logos = _decode_logos(info.logos, target_h=48)
+    logos = _decode_logos(info.logos, target_h=48, flatten=False)
     buf = io.BytesIO()
     render_ticket_card(number, token, info, logos).save(
         buf, format="PDF", resolution=150.0

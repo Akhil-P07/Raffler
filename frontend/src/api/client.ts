@@ -313,11 +313,10 @@ async function rasterizeIfSvg(file: File): Promise<Blob> {
     canvas.height = th;
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("Could not get a 2D canvas context");
-    // Paint a white background first: tickets are white, and this prevents an
-    // SVG with a transparent background (or currentColor/alpha quirks) from
-    // exporting transparent pixels that render as black.
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, tw, th);
+    // Keep the canvas transparent (no white fill) so a transparent SVG stays
+    // transparent in the exported PNG — otherwise the baked-in white shows as a
+    // box on the emailed ticket's coloured header. On the white print ticket a
+    // transparent logo renders identically to a white-backed one.
     ctx.drawImage(img, 0, 0, tw, th);
     return await new Promise<Blob>((resolve, reject) =>
       canvas.toBlob(
