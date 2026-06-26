@@ -317,6 +317,7 @@ export default function AdminDashboard() {
                 <h3 className="mb-3 font-semibold text-gray-900">Entries</h3>
                 <EntryTable
                   entries={entries}
+                  eventCode={detail.event_code}
                   selectable={owner && detail.status !== "drawn"}
                   onDeregister={onDeregister}
                 />
@@ -329,6 +330,7 @@ export default function AdminDashboard() {
       {showWinners && (
         <WinnerModal
           winners={winners}
+          eventCode={detail?.event_code ?? null}
           alreadyDrawn={alreadyDrawn}
           onClose={() => setShowWinners(false)}
         />

@@ -63,11 +63,13 @@ def _sheet_info(org: Organization, raffle: Raffle, db: Session) -> TicketSheetIn
     return TicketSheetInfo(
         org_name=org.name,
         raffle_name=raffle.name,
+        event_code=raffle.event_code,
         goc_id=org.goc_id,
         prizes=raffle.prizes,
         ticket_price=raffle.ticket_price,
         drawing_datetime=raffle.drawing_datetime,
         drawing_location=raffle.drawing_location,
+        ticket_notes=raffle.ticket_notes,
         logos=[logo.image for logo in logos],
     )
 

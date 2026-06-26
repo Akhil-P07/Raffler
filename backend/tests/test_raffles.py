@@ -18,6 +18,44 @@ class TestCreateRaffle:
         assert body["drawn_at"] is None
         assert "id" in body
 
+
+class TestEventCode:
+    def test_event_code_derived_from_name_initials(self, client, free_org):
+        body = client.post(
+            "/raffles", json={"name": "Spring Gala"}, headers=free_org["headers"]
+        ).json()
+        # Initials of the words, plus a two-digit uniquifier.
+        assert body["event_code"] == "SG01"
+
+    def test_event_codes_are_unique_across_raffles(self, client, club_org):
+        # Same name twice -> same base, distinct uniquifier.
+        a = client.post(
+            "/raffles", json={"name": "Spring Gala"}, headers=club_org["headers"]
+        ).json()
+        b = client.post(
+            "/raffles", json={"name": "Spring Gala"}, headers=club_org["headers"]
+        ).json()
+        assert a["event_code"] != b["event_code"]
+        assert {a["event_code"], b["event_code"]} == {"SG01", "SG02"}
+
+    def test_event_code_in_detail_and_list(self, client, free_org):
+        raffle_id = create_raffle(client, free_org["headers"], "Holiday Draw")
+        detail = client.get(
+            f"/raffles/{raffle_id}", headers=free_org["headers"]
+        ).json()
+        assert detail["event_code"] == "HD01"
+        listed = client.get("/raffles", headers=free_org["headers"]).json()
+        assert listed[0]["event_code"] == "HD01"
+
+    def test_ticket_notes_round_trip(self, client, free_org):
+        terms = "Unclaimed prizes are emailed to the registered address after 24h."
+        body = client.post(
+            "/raffles",
+            json={"name": "Terms Test", "ticket_notes": terms},
+            headers=free_org["headers"],
+        ).json()
+        assert body["ticket_notes"] == terms
+
     def test_create_raffle_requires_api_key(self, client):
         resp = client.post("/raffles", json={"name": "No Key"})
         assert resp.status_code == 401

@@ -37,11 +37,15 @@ class TicketSheetInfo:
 
     org_name: str
     raffle_name: str
+    # Short per-raffle code; printed as the serial prefix #<event_code>-<number>.
+    event_code: str | None = None
     goc_id: str | None = None
     prizes: str | None = None
     ticket_price: str | None = None
     drawing_datetime: datetime | None = None
     drawing_location: str | None = None
+    # "Special information" / terms printed small on every ticket face.
+    ticket_notes: str | None = None
     # Normalized PNG bytes for each co-hosting org logo, printed in a top row.
     logos: list[bytes] = field(default_factory=list)
 
@@ -239,7 +243,9 @@ def render_ticket(
     f_serial = _load_font(17, bold=True)
 
     qr_full = _qr_image(token, box_size=4, border=1)
-    serial = f"Ticket #{number}"
+    # Serial: #<event_code>-<number> (e.g. #SG01-7), falling back to #<number>
+    # if the raffle predates event codes.
+    serial = f"#{info.event_code}-{number}" if info.event_code else f"#{number}"
 
     # Perforation (dashed) separating stub | body | serial strip.
     for px in (body_x0, body_x1):
@@ -330,10 +336,22 @@ def render_ticket(
             draw.text((bx, dy), line, font=f_body, fill="black")
             dy += f_body.size + 4
 
+    statement_y = _TH - f_stmt.size - 12
+
+    # Special-information / terms — small print, between the drawing details and
+    # the statement. Wraps to the width up to the QR; only draws lines that fit
+    # above the statement so it never overlaps.
+    if info.ticket_notes:
+        f_note = _load_font(13)
+        ny = dy + 3
+        for line in _wrap(draw, info.ticket_notes, f_note, draw_w):
+            if ny + f_note.size > statement_y - 2:
+                break
+            draw.text((bx, ny), line, font=f_note, fill="black")
+            ny += f_note.size + 2
+
     # "Need not be present" statement — bottom-left.
-    draw.text(
-        (bx, _TH - f_stmt.size - 12), NOT_PRESENT_STATEMENT, font=f_stmt, fill="black"
-    )
+    draw.text((bx, statement_y), NOT_PRESENT_STATEMENT, font=f_stmt, fill="black")
 
     return img
 

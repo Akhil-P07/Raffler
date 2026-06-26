@@ -68,11 +68,12 @@ def export_entries(
 
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow(["ticket_number", "name", "email", "phone", "registered_at"])
+    writer.writerow(["ticket", "name", "email", "phone", "registered_at"])
     for entry, number in _entries_with_numbers(db, raffle.id):
+        serial = f"#{raffle.event_code}-{number}" if raffle.event_code else f"#{number}"
         writer.writerow(
             [
-                number,
+                serial,
                 _csv_safe(entry.name),
                 _csv_safe(entry.email),
                 _csv_safe(entry.phone or ""),

@@ -16,7 +16,6 @@ from schemas import (
     GenerateTicketsRequest,
     GenerateTicketsResponse,
     TicketResponse,
-    UpdateTicketRequest,
 )
 from services.limits import enforce_ticket_limit
 from services.qr import (
@@ -41,11 +40,13 @@ def _sheet_info(org: Organization, raffle, db: Session) -> TicketSheetInfo:
     return TicketSheetInfo(
         org_name=org.name,
         raffle_name=raffle.name,
+        event_code=raffle.event_code,
         goc_id=org.goc_id,
         prizes=raffle.prizes,
         ticket_price=raffle.ticket_price,
         drawing_datetime=raffle.drawing_datetime,
         drawing_location=raffle.drawing_location,
+        ticket_notes=raffle.ticket_notes,
         logos=[logo.image for logo in logos],
     )
 
@@ -137,22 +138,6 @@ def ticket_sheet(
             )
         },
     )
-
-
-@router.patch("/tickets/{ticket_id}", response_model=TicketResponse)
-def update_ticket(
-    ticket_id: str,
-    body: UpdateTicketRequest,
-    org: Organization = Depends(require_owner),
-    db: Session = Depends(get_db),
-) -> TicketResponse:
-    """Set a ticket's free-text admin note (per-ticket unique info). The only
-    editable field today; sending a blank/omitted note clears it."""
-    ticket = get_owned_ticket(ticket_id, org, db)
-    ticket.notes = body.notes
-    db.commit()
-    db.refresh(ticket)
-    return TicketResponse.model_validate(ticket)
 
 
 @router.get(

@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import and_, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from database import Entry, Organization, Raffle, Ticket, get_db
@@ -18,9 +19,18 @@ from schemas import (
     RaffleResponse,
     UpdateRaffleRequest,
 )
+from services.event_code import make_event_code
 from services.limits import enforce_raffle_limit
 
 router = APIRouter(tags=["raffles"])
+
+
+def _unique_event_code(db: Session, name: str) -> str:
+    """A code for `name` not already used by any raffle (globally unique)."""
+    taken = {
+        c for c in db.scalars(select(Raffle.event_code)).all() if c is not None
+    }
+    return make_event_code(name, taken)
 
 
 @router.post(
@@ -32,16 +42,30 @@ def create_raffle(
     db: Session = Depends(get_db),
 ) -> RaffleResponse:
     enforce_raffle_limit(db, org.id, org.plan)
-    raffle = Raffle(
-        org_id=org.id,
-        name=body.name,
-        ticket_price=body.ticket_price,
-        prizes=body.prizes,
-        drawing_datetime=body.drawing_datetime,
-        drawing_location=body.drawing_location,
-    )
-    db.add(raffle)
-    db.commit()
+    # Retry on the rare event_code collision (concurrent creates) — the column
+    # is UNIQUE, so a duplicate raises IntegrityError; regenerate and retry.
+    for _ in range(5):
+        raffle = Raffle(
+            org_id=org.id,
+            name=body.name,
+            event_code=_unique_event_code(db, body.name),
+            ticket_price=body.ticket_price,
+            prizes=body.prizes,
+            drawing_datetime=body.drawing_datetime,
+            drawing_location=body.drawing_location,
+            ticket_notes=body.ticket_notes,
+        )
+        db.add(raffle)
+        try:
+            db.commit()
+            break
+        except IntegrityError:
+            db.rollback()
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Could not allocate a unique event code; please retry.",
+        )
     db.refresh(raffle)
     return RaffleResponse.model_validate(raffle)
 
@@ -101,7 +125,13 @@ def update_raffle(
     # Use the explicitly-provided set so a field can be cleared (set to null)
     # vs. simply left untouched.
     provided = body.model_fields_set
-    for fld in ("ticket_price", "prizes", "drawing_datetime", "drawing_location"):
+    for fld in (
+        "ticket_price",
+        "prizes",
+        "drawing_datetime",
+        "drawing_location",
+        "ticket_notes",
+    ):
         if fld in provided:
             setattr(raffle, fld, getattr(body, fld))
     db.commit()

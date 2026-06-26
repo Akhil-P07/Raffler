@@ -49,12 +49,16 @@ export interface InviteInfo {
 export interface Raffle {
   id: string;
   name: string;
+  // Short unique code derived from the name; ticket serials are #<code>-<n>.
+  event_code: string | null;
   status: RaffleStatus;
   // Legal ticket-face metadata (printed on tickets; all optional).
   ticket_price: string | null;
   prizes: string | null;
   drawing_datetime: string | null;
   drawing_location: string | null;
+  // Special info / terms printed on every ticket (same for the whole raffle).
+  ticket_notes: string | null;
   drawn_at: string | null;
   created_at: string;
 }
@@ -66,6 +70,7 @@ export interface RaffleInput {
   prizes?: string;
   drawing_datetime?: string; // ISO string
   drawing_location?: string;
+  ticket_notes?: string;
 }
 
 export interface RaffleDetail extends Raffle {
@@ -83,8 +88,6 @@ export interface Ticket {
   id: string;
   ticket_number: number;
   registered: boolean;
-  // Free-text admin note for per-ticket unique info (not printed on the ticket).
-  notes: string | null;
   // No `token`: the server never exposes it. The QR is fetched by ticket id
   // (GET /tickets/{id}/qr) and the print sheet is rendered server-side.
 }

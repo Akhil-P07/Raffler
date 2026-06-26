@@ -188,12 +188,12 @@ export async function listTickets(raffleId: string): Promise<Ticket[]> {
   return (await authed.get<Ticket[]>(`/raffles/${raffleId}/tickets`)).data;
 }
 
-/** Update a ticket's free-text admin note (per-ticket unique info). */
-export async function updateTicketNotes(
-  ticketId: string,
-  notes: string
-): Promise<Ticket> {
-  return (await authed.patch<Ticket>(`/tickets/${ticketId}`, { notes })).data;
+/** The printed ticket serial: #<event-code>-<number> (falls back to #<number>). */
+export function ticketSerial(
+  eventCode: string | null | undefined,
+  ticketNumber: number
+): string {
+  return eventCode ? `#${eventCode}-${ticketNumber}` : `#${ticketNumber}`;
 }
 
 /**

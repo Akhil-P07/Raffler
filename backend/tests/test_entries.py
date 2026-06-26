@@ -115,7 +115,7 @@ class TestExportEntries:
             headers=free_org["headers"],
         )
         first_line = resp.text.strip().split("\n")[0]
-        assert "ticket_number" in first_line
+        assert "ticket" in first_line
         assert "name" in first_line
         assert "email" in first_line
 

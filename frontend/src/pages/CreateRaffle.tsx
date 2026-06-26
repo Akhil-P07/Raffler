@@ -9,6 +9,7 @@ export default function CreateRaffle() {
   const [prizes, setPrizes] = useState("");
   const [drawingAt, setDrawingAt] = useState(""); // datetime-local
   const [location, setLocation] = useState("");
+  const [ticketNotes, setTicketNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -27,6 +28,7 @@ export default function CreateRaffle() {
         // the ticket matches exactly what the admin typed for the local event.
         drawing_datetime: drawingAt ? `${drawingAt}:00` : undefined,
         drawing_location: location || undefined,
+        ticket_notes: ticketNotes || undefined,
       });
       // Send the admin straight to generating tickets for the new raffle.
       navigate(`/raffles/${raffle.id}/tickets`);
@@ -130,6 +132,21 @@ export default function CreateRaffle() {
             value={location}
             onChange={(e) => setLocation(e.target.value)}
             placeholder="e.g. Fireside Lounge"
+            className={field}
+          />
+        </div>
+
+        <div>
+          <label htmlFor="ticket-notes" className={labelCls}>
+            Special info / terms (printed on every ticket)
+          </label>
+          <textarea
+            id="ticket-notes"
+            rows={2}
+            maxLength={300}
+            value={ticketNotes}
+            onChange={(e) => setTicketNotes(e.target.value)}
+            placeholder="e.g. If unclaimed within 24 hours, the prize is emailed to the registered address."
             className={field}
           />
         </div>

@@ -195,6 +195,11 @@ class Raffle(Base):
         String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
     )
     name: Mapped[str] = mapped_column(String, nullable=False)
+    # Short, unique, human-readable code derived from the name (e.g. "SG01").
+    # Printed on every ticket as the serial prefix: #<event_code>-<number>.
+    # Nullable only so the additive migration can backfill existing rows; new
+    # raffles always receive one at creation.
+    event_code: Mapped[str | None] = mapped_column(String, unique=True, nullable=True)
     status: Mapped[str] = mapped_column(String, default="active", nullable=False)
     # Print-only raffle metadata required on the ticket face by NY/RIT rules.
     # Stored so each printed ticket can carry them; NOT payment/sale tracking.
@@ -204,6 +209,9 @@ class Raffle(Base):
         DateTime(timezone=True), nullable=True
     )
     drawing_location: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Free-text "special information" / terms printed on every ticket face
+    # (e.g. the claim-window policy). Same for all tickets in the raffle.
+    ticket_notes: Mapped[str | None] = mapped_column(String, nullable=True)
     rng_seed: Mapped[str | None] = mapped_column(String, nullable=True)
     drawn_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
@@ -249,9 +257,6 @@ class Ticket(Base):
     # Unguessable random string carried in the QR registration URL.
     token: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     registered: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    # Free-text admin note for per-ticket unique info (seat, table, buyer hint).
-    # Not printed on the ticket face; visible only on the admin tickets page.
-    notes: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -345,6 +350,8 @@ def _add_missing_columns() -> None:
     databases pick them up on the next startup. Safe to run every time."""
     from sqlalchemy import inspect, text
 
+    from services.event_code import make_event_code
+
     inspector = inspect(engine)
     tables = inspector.get_table_names()
     if "entries" in tables:
@@ -352,11 +359,34 @@ def _add_missing_columns() -> None:
         if "phone" not in existing:
             with engine.begin() as conn:
                 conn.execute(text("ALTER TABLE entries ADD COLUMN phone VARCHAR"))
-    if "tickets" in tables:
-        existing = {col["name"] for col in inspector.get_columns("tickets")}
-        if "notes" not in existing:
-            with engine.begin() as conn:
-                conn.execute(text("ALTER TABLE tickets ADD COLUMN notes VARCHAR"))
+    if "raffles" in tables:
+        existing = {col["name"] for col in inspector.get_columns("raffles")}
+        with engine.begin() as conn:
+            if "event_code" not in existing:
+                conn.execute(text("ALTER TABLE raffles ADD COLUMN event_code VARCHAR"))
+            if "ticket_notes" not in existing:
+                conn.execute(text("ALTER TABLE raffles ADD COLUMN ticket_notes VARCHAR"))
+        # Backfill a unique event_code for any raffle that predates the column.
+        with engine.begin() as conn:
+            taken = {
+                row[0]
+                for row in conn.execute(
+                    text("SELECT event_code FROM raffles WHERE event_code IS NOT NULL")
+                )
+            }
+            missing = conn.execute(
+                text(
+                    "SELECT id, name FROM raffles WHERE event_code IS NULL "
+                    "ORDER BY created_at"
+                )
+            ).all()
+            for rid, name in missing:
+                code = make_event_code(name or "", taken)
+                taken.add(code)
+                conn.execute(
+                    text("UPDATE raffles SET event_code = :c WHERE id = :id"),
+                    {"c": code, "id": rid},
+                )
 
 
 def init_db() -> None:

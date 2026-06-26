@@ -1,15 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import LogoManager from "../components/LogoManager";
 import TicketCard from "../components/TicketCard";
 import {
   downloadTicketSheet,
   errorMessage,
-  fetchQrObjectUrl,
   generateTickets,
   getRaffle,
   listTickets,
-  updateTicketNotes,
 } from "../api/client";
 import type { Ticket } from "../api/types";
 
@@ -18,18 +16,15 @@ export default function GenerateTickets() {
   const navigate = useNavigate();
 
   const [raffleName, setRaffleName] = useState("");
+  const [eventCode, setEventCode] = useState<string | null>(null);
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [count, setCount] = useState(10);
   const [busy, setBusy] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // ticketId -> object URL of its full preview image. Revoked on unmount.
-  const [previewUrls, setPreviewUrls] = useState<Record<string, string>>({});
-  const previewUrlsRef = useRef<Record<string, string>>({});
-  previewUrlsRef.current = previewUrls;
-  // Ticket ids whose preview fetch is in flight, so re-renders don't re-request.
-  const fetchingRef = useRef<Set<string>>(new Set());
+  // QR codes load on demand (one request each). "Reveal all" flips this on so
+  // every card fetches its own QR; otherwise each loads only when clicked.
+  const [revealAll, setRevealAll] = useState(false);
 
   async function refresh() {
     const [raffle, ts] = await Promise.all([
@@ -37,62 +32,14 @@ export default function GenerateTickets() {
       listTickets(raffleId),
     ]);
     setRaffleName(raffle.name);
+    setEventCode(raffle.event_code);
     setTickets(ts);
-  }
-
-  /** Drop all cached previews so they re-render (e.g. after a logo change). */
-  function clearPreviews() {
-    Object.values(previewUrlsRef.current).forEach(URL.revokeObjectURL);
-    fetchingRef.current.clear();
-    setPreviewUrls({});
   }
 
   useEffect(() => {
     refresh().catch((err) => setError(errorMessage(err)));
-    // Revoke every object URL we created when leaving the page.
-    return () => {
-      Object.values(previewUrlsRef.current).forEach(URL.revokeObjectURL);
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [raffleId]);
-
-  // Lazily fetch a full-ticket preview for any ticket that doesn't have one.
-  // Depends only on `tickets`: in-flight ids are tracked in a ref and existing
-  // urls are read from previewUrlsRef, so storing one doesn't re-fire the
-  // effect (which would cancel/restart the whole batch).
-  useEffect(() => {
-    let cancelled = false;
-    const missing = tickets.filter(
-      (t) => !previewUrlsRef.current[t.id] && !fetchingRef.current.has(t.id)
-    );
-    if (missing.length === 0) return;
-    missing.forEach((t) => fetchingRef.current.add(t.id));
-    (async () => {
-      for (const t of missing) {
-        try {
-          const url = await fetchQrObjectUrl(t.id);
-          if (cancelled) {
-            URL.revokeObjectURL(url);
-            return;
-          }
-          setPreviewUrls((prev) => ({ ...prev, [t.id]: url }));
-        } catch {
-          /* leave this card as a placeholder rather than failing the page */
-        } finally {
-          fetchingRef.current.delete(t.id);
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // Intentionally depends ONLY on `tickets`. Existing urls and in-flight ids
-    // are read from refs, so storing a fetched preview must NOT re-fire this
-    // effect — doing so cancels the in-flight batch after the first fetch and
-    // leaves the rest of the QR codes stuck loading. (Previously this listed
-    // `previewUrls`, which is exactly that bug.)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tickets]);
 
   async function onGenerate(e: React.FormEvent) {
     e.preventDefault();
@@ -107,16 +54,6 @@ export default function GenerateTickets() {
     } finally {
       setBusy(false);
     }
-  }
-
-  // Persist a ticket's note and reflect it locally. Updating `tickets` here is
-  // safe: the preview effect re-runs but finds every id already cached, so no
-  // QR is re-fetched.
-  async function onSaveNotes(ticketId: string, notes: string) {
-    const updated = await updateTicketNotes(ticketId, notes);
-    setTickets((prev) =>
-      prev.map((t) => (t.id === ticketId ? { ...t, notes: updated.notes } : t))
-    );
   }
 
   async function onDownloadPdf() {
@@ -141,11 +78,19 @@ export default function GenerateTickets() {
       >
         ← Back to dashboard
       </button>
-      <h1 className="text-2xl font-bold text-gray-900">Tickets — {raffleName}</h1>
+      <h1 className="text-2xl font-bold text-gray-900">
+        Tickets — {raffleName}
+        {eventCode && (
+          <span className="ml-2 align-middle text-base font-medium text-gray-400">
+            ({eventCode})
+          </span>
+        )}
+      </h1>
       <p className="mb-6 text-sm text-gray-500">
-        Each ticket shows the legal raffle details, your logos, and a QR the
-        seller scans at the point of sale. Download the A4 PDF (6 per page) to
-        print in bulk.
+        Each ticket shows its serial (#{eventCode ?? "CODE"}-1, …) and a QR the
+        organizer scans to register a buyer. QR codes load on demand — click
+        “Show QR” on a ticket, or “Reveal all”. Download the A4 PDF to print in
+        bulk.
       </p>
 
       <form
@@ -187,20 +132,31 @@ export default function GenerateTickets() {
       </form>
 
       <div className="mb-6">
-        <LogoManager raffleId={raffleId} onChange={clearPreviews} />
+        <LogoManager raffleId={raffleId} />
       </div>
 
-      <p className="mb-4 text-sm font-medium text-gray-600">
-        {tickets.length} ticket{tickets.length === 1 ? "" : "s"} generated
-      </p>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm font-medium text-gray-600">
+          {tickets.length} ticket{tickets.length === 1 ? "" : "s"} generated
+        </p>
+        {tickets.length > 0 && !revealAll && (
+          <button
+            type="button"
+            onClick={() => setRevealAll(true)}
+            className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+          >
+            Reveal all QR codes
+          </button>
+        )}
+      </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
         {tickets.map((t) => (
           <TicketCard
             key={t.id}
             ticket={t}
-            qrUrl={previewUrls[t.id] ?? ""}
-            onSaveNotes={onSaveNotes}
+            eventCode={eventCode}
+            reveal={revealAll}
           />
         ))}
       </div>

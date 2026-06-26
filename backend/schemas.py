@@ -173,6 +173,8 @@ class CreateRaffleRequest(BaseModel):
     prizes: str | None = Field(default=None, max_length=500)
     drawing_datetime: datetime | None = None
     drawing_location: str | None = Field(default=None, max_length=200)
+    # Special information / terms printed on every ticket (e.g. claim window).
+    ticket_notes: str | None = Field(default=None, max_length=300)
 
     @field_validator("name")
     @classmethod
@@ -182,7 +184,7 @@ class CreateRaffleRequest(BaseModel):
             raise ValueError("name must not be empty")
         return v
 
-    @field_validator("ticket_price", "prizes", "drawing_location")
+    @field_validator("ticket_price", "prizes", "drawing_location", "ticket_notes")
     @classmethod
     def strip_optional(cls, v: str | None) -> str | None:
         return _blank_to_none(v)
@@ -195,6 +197,7 @@ class UpdateRaffleRequest(BaseModel):
     prizes: str | None = Field(default=None, max_length=500)
     drawing_datetime: datetime | None = None
     drawing_location: str | None = Field(default=None, max_length=200)
+    ticket_notes: str | None = Field(default=None, max_length=300)
 
     @field_validator("name")
     @classmethod
@@ -214,7 +217,7 @@ class UpdateRaffleRequest(BaseModel):
             raise ValueError("status must be 'active' or 'closed'")
         return v
 
-    @field_validator("ticket_price", "prizes", "drawing_location")
+    @field_validator("ticket_price", "prizes", "drawing_location", "ticket_notes")
     @classmethod
     def strip_optional(cls, v: str | None) -> str | None:
         return _blank_to_none(v)
@@ -225,11 +228,13 @@ class RaffleResponse(BaseModel):
 
     id: str
     name: str
+    event_code: str | None
     status: str
     ticket_price: str | None
     prizes: str | None
     drawing_datetime: datetime | None
     drawing_location: str | None
+    ticket_notes: str | None
     drawn_at: datetime | None
     created_at: datetime
 
@@ -258,24 +263,12 @@ class GenerateTicketsRequest(BaseModel):
     count: int = Field(gt=0, le=10_000)
 
 
-class UpdateTicketRequest(BaseModel):
-    """Owner edit of a ticket's free-text admin note (per-ticket unique info)."""
-
-    notes: str | None = Field(default=None, max_length=500)
-
-    @field_validator("notes")
-    @classmethod
-    def strip_notes(cls, v: str | None) -> str | None:
-        return _blank_to_none(v)
-
-
 class TicketResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
     ticket_number: int
     registered: bool
-    notes: str | None = None
     # NOTE: the unguessable `token` is deliberately NOT exposed. It only ever
     # lives inside the server-rendered QR image / print sheet, so dumping every
     # token in a list response can't leak the registration boundary.

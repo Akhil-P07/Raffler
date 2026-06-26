@@ -1,14 +1,22 @@
 import { useEffect, useRef } from "react";
+import { ticketSerial } from "../api/client";
 import type { Winner } from "../api/types";
 
 interface Props {
   winners: Winner[];
+  // The raffle's event code; ticket serials render as #<eventCode>-<number>.
+  eventCode: string | null;
   alreadyDrawn: boolean;
   onClose: () => void;
 }
 
 /** Overlay announcing the drawn winner(s). The draw is final and recorded. */
-export default function WinnerModal({ winners, alreadyDrawn, onClose }: Props) {
+export default function WinnerModal({
+  winners,
+  eventCode,
+  alreadyDrawn,
+  onClose,
+}: Props) {
   const closeRef = useRef<HTMLButtonElement>(null);
 
   // Move focus into the dialog on open so keyboard/screen-reader users land
@@ -61,7 +69,7 @@ export default function WinnerModal({ winners, alreadyDrawn, onClose }: Props) {
                 )}
               </div>
               <div className="text-sm text-gray-600">
-                Ticket #{w.ticket_number} · {w.email}
+                Ticket {ticketSerial(eventCode, w.ticket_number)} · {w.email}
               </div>
             </li>
           ))}
