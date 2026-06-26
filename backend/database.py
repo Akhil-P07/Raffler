@@ -1,8 +1,8 @@
 """SQLAlchemy models and database initialization.
 
 The schema mirrors the SQL in the spec exactly: organizations → raffles →
-tickets → entries, plus an immutable winners table. UUIDs are stored as TEXT
-so the same models work on PostgreSQL (production) and SQLite (local dev).
+tickets → entries, plus an immutable winners table. The store is SQLite — a
+file on disk locally, and a file on a mounted persistent volume in production.
 """
 import secrets
 import uuid
@@ -30,38 +30,28 @@ from sqlalchemy.orm import (
 
 from config import settings
 
+DATABASE_URL = settings.DATABASE_URL
+_is_sqlite = DATABASE_URL.startswith("sqlite")
 
-def _normalize_db_url(url: str) -> str:
-    # Railway hands out `postgres://`; SQLAlchemy 2.x needs `postgresql://`.
-    # We also pin the psycopg (v3) driver explicitly, since that's what's in
-    # requirements.txt — the bare `postgresql://` would default to psycopg2.
-    if url.startswith("postgres://"):
-        url = url.replace("postgres://", "postgresql://", 1)
-    if url.startswith("postgresql://"):
-        url = url.replace("postgresql://", "postgresql+psycopg://", 1)
-    return url
-
-
-DATABASE_URL = _normalize_db_url(settings.DATABASE_URL)
-
-# check_same_thread is a SQLite-only knob; it would error on PostgreSQL.
-_connect_args = {}
-if DATABASE_URL.startswith("sqlite"):
-    _connect_args = {"check_same_thread": False}
-elif DATABASE_URL.startswith("postgresql"):
-    _connect_args = {"connect_timeout": settings.DATABASE_CONNECT_TIMEOUT_SECONDS}
+# check_same_thread is a SQLite-only knob (we hand sessions across threads).
+_connect_args = {"check_same_thread": False} if _is_sqlite else {}
 
 engine = create_engine(DATABASE_URL, connect_args=_connect_args, pool_pre_ping=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
-if DATABASE_URL.startswith("sqlite"):
-    # SQLite ignores ON DELETE CASCADE unless foreign keys are enabled per
-    # connection. Turn them on so local dev matches PostgreSQL's enforcement.
+if _is_sqlite:
+
     @event.listens_for(engine, "connect")
-    def _enable_sqlite_fks(dbapi_conn, _record):  # noqa: ANN001
+    def _sqlite_pragmas(dbapi_conn, _record):  # noqa: ANN001
         cursor = dbapi_conn.cursor()
+        # Enforce ON DELETE CASCADE (off by default in SQLite).
         cursor.execute("PRAGMA foreign_keys=ON")
+        # WAL: readers don't block the writer (and vice versa) — important when
+        # several sellers register tickets at once against the volume-backed DB.
+        cursor.execute("PRAGMA journal_mode=WAL")
+        # Wait up to 5s for the single write lock instead of erroring instantly.
+        cursor.execute("PRAGMA busy_timeout=5000")
         cursor.close()
 
 

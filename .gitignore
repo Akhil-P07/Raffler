@@ -11,7 +11,12 @@ forClaude.md
 __pycache__/
 *.pyc
 *.db
+*.sqlite
 *.sqlite3
+# SQLite WAL sidecar files (do not match *.db)
+*.db-wal
+*.db-shm
+*.db-journal
 
 # Node / frontend
 node_modules/

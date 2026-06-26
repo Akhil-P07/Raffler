@@ -1,13 +1,14 @@
 # Raffler
 
-A standalone, multi-tenant raffle **registration and draw** platform. Built for
-RIT AI Club and designed to be licensed to other clubs. **No money ever touches
-this platform** — ticket sales and payments are handled offline by the club.
+A standalone, multi-tenant raffle **registration and draw** platform. Originally
+built for RIT AI Club and open-sourced ([MIT](LICENSE)) so any club can
+self-host it. **No money ever touches this platform** — ticket sales and
+payments are handled offline by the club.
 
-- **Backend:** FastAPI · SQLAlchemy 2.0 · PostgreSQL (SQLite for local dev) ·
-  `qrcode`/Pillow · `python-jose` (JWT) · `passlib`/bcrypt · `slowapi`
+- **Backend:** FastAPI · SQLAlchemy 2.0 · SQLite (a file on a persistent
+  volume) · `qrcode`/Pillow · `python-jose` (JWT) · `passlib`/bcrypt · `slowapi`
 - **Frontend:** React · TypeScript · Vite · Axios · TailwindCSS
-- **Hosting:** Railway (backend + frontend as separate services, one Postgres)
+- **Hosting:** Railway (backend + frontend services; SQLite on a mounted volume)
 
 ---
 
@@ -46,15 +47,17 @@ configured). Anyone can self-register into the **free tier**; emails on the
 premium allowlist get the **club tier**.
 
 > **Python note:** the pinned dependency versions are chosen to have prebuilt
-> wheels on Python 3.12–3.14 (e.g. `psycopg` v3 instead of `psycopg2`,
-> `bcrypt==4.3.0` for passlib compatibility). If you change Python versions and
-> hit a build-from-source error, that's the place to look.
+> wheels on Python 3.12–3.14 (e.g. `bcrypt==4.3.0` for passlib compatibility,
+> `Pillow==12.2.0`). The database is SQLite (in the standard library — no DB
+> driver to build). If you change Python versions and hit a build-from-source
+> error, the pinned versions are the place to look.
 
-## Docker (full stack with Postgres)
+## Docker (full stack)
 
 ```bash
 docker compose up --build
 # admin UI → http://localhost:5173 ; API → http://localhost:8000
+# SQLite persists in the `dbdata` volume across rebuilds.
 ```
 
 ---
@@ -186,24 +189,27 @@ start** if `SECRET_KEY` is shorter than 32 bytes.
 
 ## Deploy (Railway)
 
-Two services + one Postgres plugin, in one project:
+Two services + one volume, in one project:
 
-1. Add the **PostgreSQL** plugin; copy its `DATABASE_URL` to the backend service.
-2. **Backend service** — root directory `backend/`. Start command (or Procfile):
-   `uvicorn main:app --host 0.0.0.0 --port $PORT`. Set `SECRET_KEY` (generate
-   with `python -c "import secrets; print(secrets.token_urlsafe(48))"`),
+1. **Backend service** — root directory `backend/`. Add a **Volume** (mounted at
+   e.g. `/data`) and set `DATABASE_URL=sqlite:////data/raffler.db` (four slashes
+   = absolute path) so the database survives redeploys. Start command (or
+   Procfile): `uvicorn main:app --host 0.0.0.0 --port $PORT`. Set `SECRET_KEY`
+   (generate with `python -c "import secrets; print(secrets.token_urlsafe(48))"`),
    `BASE_URL`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `FRONTEND_ORIGIN`, `API_ORIGIN`,
    `PREMIUM_EMAILS`, and (optional) `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` /
    `GOOGLE_REDIRECT_URI` (`https://yourapi.com/auth/google/callback`, which must
-   match the Authorized Redirect URI in the Google Cloud console).
-3. **Frontend service** — root directory `frontend/`. Build `npm run build`,
+   match the Authorized Redirect URI in the Google Cloud console). **Keep the
+   backend at a single replica** — a SQLite file can't be shared across
+   instances.
+2. **Frontend service** — root directory `frontend/`. Build `npm run build`,
    start `npx serve -s dist -l $PORT`. Set build-time `VITE_API_BASE` and
    `VITE_BASE_URL` to the real domains.
-4. Point `BASE_URL`/`FRONTEND_ORIGIN` (backend) and `VITE_*` (frontend) at the
+3. Point `BASE_URL`/`FRONTEND_ORIGIN` (backend) and `VITE_*` (frontend) at the
    deployed domains so QR links and CORS line up.
 
-Railway's free Postgres has no automated backups — **export entries to CSV after
-registration closes and before any draw.**
+There are no automated backups — **copy `raffler.db` off the volume periodically,
+and export entries to CSV after registration closes and before any draw.**
 
 ## Tests
 
@@ -216,3 +222,23 @@ pytest
 ## Out of scope (permanently)
 
 Payment processing and price/sale tracking. Cash is always handled offline.
+
+## Privacy
+
+Raffler stores personal data (buyer name / email / phone, and account-holder
+emails). If you deploy it, you are the data controller for your instance — read
+and adapt [`PRIVACY.md`](PRIVACY.md) (fill in your organization name and contact)
+and publish it to your users. Buyer details are collected by the logged-in
+seller, never logged in plaintext app logs, and can be exported or deleted via
+the dashboard.
+
+## Contributing
+
+Issues and PRs welcome. Please run the backend test suite (`pytest`) and build
+the frontend (`npm run build`) before opening a PR, and never commit real
+secrets or a populated database (`.env`, `*.db` are git-ignored).
+
+## License
+
+[MIT](LICENSE) © Akhil Palepally. You may use, modify, and self-host this
+freely; it comes with no warranty.

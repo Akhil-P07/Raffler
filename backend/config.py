@@ -20,10 +20,10 @@ class Settings(BaseSettings):
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
 
-    # SQLite default lets the app run locally with zero setup. Production sets
-    # DATABASE_URL to the Railway PostgreSQL connection string.
+    # SQLite is the only backend. Local dev uses a file in the working dir;
+    # production points this at a file on the mounted persistent volume, e.g.
+    # DATABASE_URL=sqlite:////data/raffler.db
     DATABASE_URL: str = "sqlite:///./raffler.db"
-    DATABASE_CONNECT_TIMEOUT_SECONDS: int = 5
 
     SECRET_KEY: str = _INSECURE_DEFAULT_SECRET
     JWT_ALGORITHM: str = "HS256"
