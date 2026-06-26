@@ -249,6 +249,9 @@ class Ticket(Base):
     # Unguessable random string carried in the QR registration URL.
     token: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     registered: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Free-text admin note for per-ticket unique info (seat, table, buyer hint).
+    # Not printed on the ticket face; visible only on the admin tickets page.
+    notes: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -343,12 +346,17 @@ def _add_missing_columns() -> None:
     from sqlalchemy import inspect, text
 
     inspector = inspect(engine)
-    if "entries" not in inspector.get_table_names():
-        return
-    existing = {col["name"] for col in inspector.get_columns("entries")}
-    if "phone" not in existing:
-        with engine.begin() as conn:
-            conn.execute(text("ALTER TABLE entries ADD COLUMN phone VARCHAR"))
+    tables = inspector.get_table_names()
+    if "entries" in tables:
+        existing = {col["name"] for col in inspector.get_columns("entries")}
+        if "phone" not in existing:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE entries ADD COLUMN phone VARCHAR"))
+    if "tickets" in tables:
+        existing = {col["name"] for col in inspector.get_columns("tickets")}
+        if "notes" not in existing:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE tickets ADD COLUMN notes VARCHAR"))
 
 
 def init_db() -> None:

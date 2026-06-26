@@ -188,6 +188,14 @@ export async function listTickets(raffleId: string): Promise<Ticket[]> {
   return (await authed.get<Ticket[]>(`/raffles/${raffleId}/tickets`)).data;
 }
 
+/** Update a ticket's free-text admin note (per-ticket unique info). */
+export async function updateTicketNotes(
+  ticketId: string,
+  notes: string
+): Promise<Ticket> {
+  return (await authed.patch<Ticket>(`/tickets/${ticketId}`, { notes })).data;
+}
+
 /**
  * Fetch a single ticket's QR PNG as an object URL. The endpoint is
  * ownership-checked, so a plain <img src> can't attach the auth header — we

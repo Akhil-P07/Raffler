@@ -123,6 +123,79 @@ class TestGenerateTickets:
         assert resp.status_code == 404
 
 
+class TestTicketNotes:
+    def _first_ticket_id(self, client, headers, raffle_id):
+        return client.get(
+            f"/raffles/{raffle_id}/tickets", headers=headers
+        ).json()[0]["id"]
+
+    def test_notes_default_to_null(self, client, free_org):
+        raffle_id = create_raffle(client, free_org["headers"])
+        body = generate_tickets(client, free_org["headers"], raffle_id, count=1)
+        assert body["tickets"][0]["notes"] is None
+
+    def test_set_and_read_notes(self, client, free_org):
+        raffle_id = create_raffle(client, free_org["headers"])
+        generate_tickets(client, free_org["headers"], raffle_id, count=1)
+        ticket_id = self._first_ticket_id(client, free_org["headers"], raffle_id)
+
+        resp = client.patch(
+            f"/tickets/{ticket_id}",
+            json={"notes": "Table 4, VIP"},
+            headers=free_org["headers"],
+        )
+        assert resp.status_code == 200
+        assert resp.json()["notes"] == "Table 4, VIP"
+
+        # The note is persisted and returned by the list endpoint.
+        listed = client.get(
+            f"/raffles/{raffle_id}/tickets", headers=free_org["headers"]
+        ).json()
+        assert listed[0]["notes"] == "Table 4, VIP"
+
+    def test_blank_notes_clears(self, client, free_org):
+        raffle_id = create_raffle(client, free_org["headers"])
+        generate_tickets(client, free_org["headers"], raffle_id, count=1)
+        ticket_id = self._first_ticket_id(client, free_org["headers"], raffle_id)
+
+        client.patch(
+            f"/tickets/{ticket_id}",
+            json={"notes": "temp"},
+            headers=free_org["headers"],
+        )
+        resp = client.patch(
+            f"/tickets/{ticket_id}",
+            json={"notes": "   "},
+            headers=free_org["headers"],
+        )
+        assert resp.status_code == 200
+        assert resp.json()["notes"] is None
+
+    def test_notes_too_long_returns_422(self, client, free_org):
+        raffle_id = create_raffle(client, free_org["headers"])
+        generate_tickets(client, free_org["headers"], raffle_id, count=1)
+        ticket_id = self._first_ticket_id(client, free_org["headers"], raffle_id)
+
+        resp = client.patch(
+            f"/tickets/{ticket_id}",
+            json={"notes": "x" * 501},
+            headers=free_org["headers"],
+        )
+        assert resp.status_code == 422
+
+    def test_notes_ownership_check_org_b_gets_404(self, client, free_org, org_b):
+        raffle_id = create_raffle(client, free_org["headers"])
+        generate_tickets(client, free_org["headers"], raffle_id, count=1)
+        ticket_id = self._first_ticket_id(client, free_org["headers"], raffle_id)
+
+        resp = client.patch(
+            f"/tickets/{ticket_id}",
+            json={"notes": "should not work"},
+            headers=org_b["headers"],
+        )
+        assert resp.status_code == 404
+
+
 class TestQRAndSheet:
     def test_qr_returns_png(self, client, app_and_db, free_org):
         _, database_mod = app_and_db
@@ -223,6 +296,29 @@ class TestQRAndSheet:
         numbers = [p[0] for p in pairs]
         assert numbers == sorted(numbers)
         assert len(numbers) == len(set(numbers))
+
+    def test_qr_endpoint_allows_bulk_loading_above_default_limit(
+        self, client, app_and_db, free_org
+    ):
+        """The admin tickets page fetches one QR per ticket, so the QR route has
+        a raised per-route limit (QR_LIMIT) that overrides the 100/min default.
+        110 sequential requests (> the old default) must all succeed."""
+        _, database_mod = app_and_db
+        raffle_id = create_raffle(client, free_org["headers"])
+        generate_tickets(client, free_org["headers"], raffle_id, count=1)
+
+        db_session = database_mod.SessionLocal()
+        try:
+            tickets = get_tickets_from_db(db_session, database_mod, raffle_id)
+            ticket_id = tickets[0].id
+        finally:
+            db_session.close()
+
+        for _ in range(110):
+            resp = client.get(
+                f"/tickets/{ticket_id}/qr", headers=free_org["headers"]
+            )
+            assert resp.status_code == 200, resp.text
 
     def test_qr_ownership_check_org_b_gets_404(
         self, client, app_and_db, free_org, org_b

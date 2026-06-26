@@ -5,16 +5,18 @@ printed ticket_number is human-only and never appears in a registration link.
 """
 import secrets
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Request, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from database import Organization, RaffleLogo, Ticket, get_db
 from middleware.ownership import get_owned_raffle, get_owned_ticket, require_owner
+from middleware.rate_limit import QR_LIMIT, limiter
 from schemas import (
     GenerateTicketsRequest,
     GenerateTicketsResponse,
     TicketResponse,
+    UpdateTicketRequest,
 )
 from services.limits import enforce_ticket_limit
 from services.qr import (
@@ -137,6 +139,22 @@ def ticket_sheet(
     )
 
 
+@router.patch("/tickets/{ticket_id}", response_model=TicketResponse)
+def update_ticket(
+    ticket_id: str,
+    body: UpdateTicketRequest,
+    org: Organization = Depends(require_owner),
+    db: Session = Depends(get_db),
+) -> TicketResponse:
+    """Set a ticket's free-text admin note (per-ticket unique info). The only
+    editable field today; sending a blank/omitted note clears it."""
+    ticket = get_owned_ticket(ticket_id, org, db)
+    ticket.notes = body.notes
+    db.commit()
+    db.refresh(ticket)
+    return TicketResponse.model_validate(ticket)
+
+
 @router.get(
     "/tickets/{ticket_id}/preview",
     response_class=Response,
@@ -144,7 +162,9 @@ def ticket_sheet(
         200: {"content": {"image/png": {}}, "description": "Full ticket preview PNG"}
     },
 )
+@limiter.limit(QR_LIMIT)
 def ticket_preview(
+    request: Request,
     ticket_id: str,
     org: Organization = Depends(require_owner),
     db: Session = Depends(get_db),
@@ -162,7 +182,9 @@ def ticket_preview(
     response_class=Response,
     responses={200: {"content": {"image/png": {}}, "description": "Ticket QR PNG"}},
 )
+@limiter.limit(QR_LIMIT)
 def ticket_qr(
+    request: Request,
     ticket_id: str,
     org: Organization = Depends(require_owner),
     db: Session = Depends(get_db),

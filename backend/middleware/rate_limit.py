@@ -20,3 +20,7 @@ limiter = Limiter(
 LOGIN_LIMIT = "10/minute"
 REGISTER_LIMIT = "20/minute"
 DRAW_LIMIT = "5/minute"
+# Ticket QR/preview PNGs are fetched one-per-ticket by the admin tickets page,
+# so bulk-loading a large (Club-plan) raffle needs far more headroom than the
+# 100/min default. Still per-IP and owner-authenticated, so abuse stays bounded.
+QR_LIMIT = "1000/minute"

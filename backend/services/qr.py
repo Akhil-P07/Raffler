@@ -216,8 +216,8 @@ def render_ticket(
     - Left tear-off STUB (the seller keeps it after the sale): serial, a QR of
       the same registration token, and Name / Address / Phone write-in rules.
     - BODY: logo (top-left), title (centred), price (top-right), a full-width
-      prize line, the drawing details + a 'scan to register' QR along the
-      bottom, and the 'need not be present' statement.
+      prize line, the drawing details + an (uncaptioned) registration QR along
+      the bottom, and the 'need not be present' statement.
     - Right serial strip.
     """
     img = Image.new("RGB", (_TW, _TH), "white")
@@ -305,14 +305,12 @@ def render_ticket(
         draw.text((bx + label_w, py + 1), prize_lines[0], font=f_body, fill="black")
     py += f_label.size + 8
 
-    # 'Scan to register' QR — bottom-right.
+    # Registration QR — bottom-right. No caption: only the org/admin scans it
+    # (to register the buyer), so the ticket carries no "scan" prompt to buyers.
     bq = 92
     bq_x = body_x1 - bq - pad
     bq_y = _TH - bq - 28
     img.paste(qr_full.resize((bq, bq)), (bq_x, bq_y))
-    cap = "Scan to register"
-    cw_ = draw.textlength(cap, font=f_stmt)
-    draw.text((bq_x + (bq - cw_) / 2, bq_y + bq + 3), cap, font=f_stmt, fill="black")
 
     # Drawing details — bottom-left, filling the width up to the QR.
     dy = py + 2

@@ -9,6 +9,7 @@ import {
   generateTickets,
   getRaffle,
   listTickets,
+  updateTicketNotes,
 } from "../api/client";
 import type { Ticket } from "../api/types";
 
@@ -85,7 +86,13 @@ export default function GenerateTickets() {
     return () => {
       cancelled = true;
     };
-  }, [tickets, previewUrls]);
+    // Intentionally depends ONLY on `tickets`. Existing urls and in-flight ids
+    // are read from refs, so storing a fetched preview must NOT re-fire this
+    // effect — doing so cancels the in-flight batch after the first fetch and
+    // leaves the rest of the QR codes stuck loading. (Previously this listed
+    // `previewUrls`, which is exactly that bug.)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tickets]);
 
   async function onGenerate(e: React.FormEvent) {
     e.preventDefault();
@@ -100,6 +107,16 @@ export default function GenerateTickets() {
     } finally {
       setBusy(false);
     }
+  }
+
+  // Persist a ticket's note and reflect it locally. Updating `tickets` here is
+  // safe: the preview effect re-runs but finds every id already cached, so no
+  // QR is re-fetched.
+  async function onSaveNotes(ticketId: string, notes: string) {
+    const updated = await updateTicketNotes(ticketId, notes);
+    setTickets((prev) =>
+      prev.map((t) => (t.id === ticketId ? { ...t, notes: updated.notes } : t))
+    );
   }
 
   async function onDownloadPdf() {
@@ -179,7 +196,12 @@ export default function GenerateTickets() {
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
         {tickets.map((t) => (
-          <TicketCard key={t.id} ticket={t} qrUrl={previewUrls[t.id] ?? ""} />
+          <TicketCard
+            key={t.id}
+            ticket={t}
+            qrUrl={previewUrls[t.id] ?? ""}
+            onSaveNotes={onSaveNotes}
+          />
         ))}
       </div>
     </div>

@@ -83,6 +83,8 @@ export interface Ticket {
   id: string;
   ticket_number: number;
   registered: boolean;
+  // Free-text admin note for per-ticket unique info (not printed on the ticket).
+  notes: string | null;
   // No `token`: the server never exposes it. The QR is fetched by ticket id
   // (GET /tickets/{id}/qr) and the print sheet is rendered server-side.
 }

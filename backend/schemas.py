@@ -258,12 +258,24 @@ class GenerateTicketsRequest(BaseModel):
     count: int = Field(gt=0, le=10_000)
 
 
+class UpdateTicketRequest(BaseModel):
+    """Owner edit of a ticket's free-text admin note (per-ticket unique info)."""
+
+    notes: str | None = Field(default=None, max_length=500)
+
+    @field_validator("notes")
+    @classmethod
+    def strip_notes(cls, v: str | None) -> str | None:
+        return _blank_to_none(v)
+
+
 class TicketResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
     ticket_number: int
     registered: bool
+    notes: str | None = None
     # NOTE: the unguessable `token` is deliberately NOT exposed. It only ever
     # lives inside the server-rendered QR image / print sheet, so dumping every
     # token in a list response can't leak the registration boundary.
