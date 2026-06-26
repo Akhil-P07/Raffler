@@ -375,17 +375,18 @@ def render_ticket(
 # print sheet and admin preview keep the regular wide ticket.
 _CARD_W, _CARD_H = 1000, 1100
 _BRAND_RGB = (247, 105, 2)  # RIT orange (#f76902)
+_BRAND_DARK_RGB = (201, 84, 0)  # #c95400
 _BRAND_LIGHT_RGB = (255, 247, 242)  # #fff7f2
 _MUTED_RGB = (110, 110, 110)
 
 
 def render_ticket_card(
-    number: int, token: str, info: TicketSheetInfo
+    number: int, token: str, info: TicketSheetInfo, logos: list[Image.Image]
 ) -> Image.Image:
     """Render the buyer's emailed ticket as a portrait 10:11 card: an orange
-    header (org + RAFFLE + name), a highlighted ticket-number/price block, the
-    prize and drawing details, the registration QR, and the legally-required
-    'need not be present' statement."""
+    header (logo + org + RAFFLE + name), a highlighted ticket-number/price
+    block, the prize and drawing details, a framed registration QR, and the
+    legally-required 'need not be present' statement."""
     img = Image.new("RGB", (_CARD_W, _CARD_H), "white")
     draw = ImageDraw.Draw(img)
 
@@ -393,15 +394,17 @@ def render_ticket_card(
     cx = _CARD_W // 2
     cw = _CARD_W - 2 * pad
 
-    f_eyebrow = _load_font(22)
-    f_title = _load_font(64, bold=True)
-    f_name = _load_font(30, bold=True)
+    f_org = _load_font(26, bold=True)
+    f_goc = _load_font(15)
+    f_title = _load_font(60, bold=True)
+    f_name = _load_font(27, bold=True)
     f_small = _load_font(18, bold=True)
     f_serial = _load_font(46, bold=True)
     f_price = _load_font(40, bold=True)
     f_label = _load_font(24, bold=True)
     f_body = _load_font(24)
     f_note = _load_font(18)
+    f_cap = _load_font(17)
     f_stmt = _load_font(23, bold=True)
 
     def center(text: str, font, y: int, fill="black") -> None:
@@ -410,42 +413,84 @@ def render_ticket_card(
 
     serial = f"#{info.event_code}-{number}" if info.event_code else f"#{number}"
 
-    # --- header band (brand orange) ---
-    header_h = 190
-    draw.rectangle([0, 0, _CARD_W, header_h], fill=_BRAND_RGB)
-    eyebrow = info.org_name
+    # --- header (brand orange), height computed from its stacked contents ---
+    # The logo(s) sit on a white "chip" so any logo — transparent or not —
+    # reads cleanly against the orange.
+    chip_gap, chip_pad = 16, 12
+    chip_h = (logos[0].height + 2 * chip_pad) if logos else 0
+    top_pad = 28
+
+    header_h = top_pad
+    if logos:
+        header_h += chip_h + 18
+    header_h += f_org.size + 4
     if info.goc_id:
-        eyebrow += f"  ·  GOC ID {info.goc_id}"
-    center(_ellipsize(draw, eyebrow, f_eyebrow, cw), f_eyebrow, 28, fill="white")
-    center("RAFFLE", f_title, 58, fill="white")
-    center(_ellipsize(draw, info.raffle_name, f_name, cw), f_name, 138, fill="white")
+        header_h += f_goc.size + 4
+    header_h += f_title.size + 6 + f_name.size + 26
+
+    draw.rectangle([0, 0, _CARD_W, header_h], fill=_BRAND_RGB)
+
+    hy = top_pad
+    if logos:
+        total_w = sum(im.width for im in logos) + chip_gap * (len(logos) - 1)
+        chip_w = total_w + 2 * chip_pad
+        chip_x = cx - chip_w // 2
+        draw.rounded_rectangle(
+            [chip_x, hy, chip_x + chip_w, hy + chip_h], radius=12, fill="white"
+        )
+        lx = chip_x + chip_pad
+        for im in logos:
+            img.paste(im, (lx, hy + chip_pad))
+            lx += im.width + chip_gap
+        hy += chip_h + 18
+    center(_ellipsize(draw, info.org_name, f_org, cw), f_org, hy, fill="white")
+    hy += f_org.size + 4
+    if info.goc_id:
+        center(f"GOC ID {info.goc_id}", f_goc, hy, fill=(255, 224, 204))
+        hy += f_goc.size + 4
+    center("RAFFLE", f_title, hy, fill="white")
+    hy += f_title.size + 6
+    center(_ellipsize(draw, info.raffle_name, f_name, cw), f_name, hy, fill="white")
 
     # outer frame
     draw.rectangle([0, 0, _CARD_W - 1, _CARD_H - 1], outline="black", width=3)
 
-    # --- bottom anchors: the legal statement, then the QR above it ---
+    # --- bottom anchors: the legal statement, then the framed QR above it ---
     stmt_lines = _wrap(draw, NOT_PRESENT_STATEMENT, f_stmt, cw)
     stmt_h = len(stmt_lines) * (f_stmt.size + 4)
-    stmt_y = _CARD_H - 40 - stmt_h
-    qr_px = 230
-    qr_y = stmt_y - 34 - qr_px
+    stmt_y = _CARD_H - 38 - stmt_h
 
+    qr_px = 210
+    frame_pad = 16
+    frame_w = frame_h = qr_px + 2 * frame_pad
+    cap = "Present this ticket at the drawing"
+    cap_y = stmt_y - 14 - f_cap.size
+    frame_y = cap_y - 12 - frame_h
+    frame_x = cx - frame_w // 2
+    draw.rounded_rectangle(
+        [frame_x, frame_y, frame_x + frame_w, frame_y + frame_h],
+        radius=16,
+        fill=(250, 250, 250),
+        outline=(224, 224, 224),
+        width=2,
+    )
     qr_full = _qr_image(token, box_size=6, border=1).resize(
         (qr_px, qr_px), Image.NEAREST
     )
-    img.paste(qr_full, (cx - qr_px // 2, qr_y))
+    img.paste(qr_full, (cx - qr_px // 2, frame_y + frame_pad))
+    center(cap, f_cap, cap_y, fill=_MUTED_RGB)
 
     sy = stmt_y
     for line in stmt_lines:
         center(line, f_stmt, sy)
         sy += f_stmt.size + 4
 
-    # --- body flows between header and QR ---
-    y = header_h + 34
-    body_bottom = qr_y - 24  # never run into the QR
+    # --- body flows between header and the QR frame ---
+    y = header_h + 30
+    body_bottom = frame_y - 22  # never run into the QR frame
 
     # Ticket-number + price highlight block.
-    box_h = 116
+    box_h = 110
     draw.rounded_rectangle(
         [pad, y, _CARD_W - pad, y + box_h],
         radius=14,
@@ -453,32 +498,32 @@ def render_ticket_card(
         outline=_BRAND_RGB,
         width=3,
     )
-    draw.text((pad + 24, y + 20), "TICKET NO.", font=f_small, fill=_MUTED_RGB)
-    draw.text((pad + 24, y + 46), serial, font=f_serial, fill=_BRAND_RGB)
+    draw.text((pad + 24, y + 18), "TICKET NO.", font=f_small, fill=_MUTED_RGB)
+    draw.text((pad + 24, y + 44), serial, font=f_serial, fill=_BRAND_RGB)
     price = _price_text(info.ticket_price)
     if price:
         pw = draw.textlength(price, font=f_price)
         lw = draw.textlength("PRICE", font=f_small)
         draw.text(
-            (_CARD_W - pad - 24 - lw, y + 20), "PRICE", font=f_small, fill=_MUTED_RGB
+            (_CARD_W - pad - 24 - lw, y + 18), "PRICE", font=f_small, fill=_MUTED_RGB
         )
         draw.text(
-            (_CARD_W - pad - 24 - pw, y + 50), price, font=f_price, fill="black"
+            (_CARD_W - pad - 24 - pw, y + 46), price, font=f_price, fill="black"
         )
-    y += box_h + 30
+    y += box_h + 28
 
     def block(label: str, lines: list[str]) -> None:
         nonlocal y
         if y + f_label.size > body_bottom:
             return
-        draw.text((pad, y), label, font=f_label, fill="black")
+        draw.text((pad, y), label, font=f_label, fill=_BRAND_DARK_RGB)
         y += f_label.size + 8
         for line in lines:
             if y + f_body.size > body_bottom:
                 break
             draw.text((pad, y), line, font=f_body, fill="black")
             y += f_body.size + 6
-        y += 14
+        y += 16
 
     block("Enter to win:", _wrap(draw, info.prizes or "—", f_body, cw))
 
@@ -492,7 +537,7 @@ def render_ticket_card(
         draw_lines += _wrap(draw, info.drawing_location, f_body, cw)
     block("Drawing held:", draw_lines)
 
-    # Special info / terms — small print, clipped above the QR.
+    # Special info / terms — small print, clipped above the QR frame.
     if info.ticket_notes:
         for line in _wrap(draw, info.ticket_notes, f_note, cw):
             if y + f_note.size > body_bottom:
@@ -513,10 +558,11 @@ def single_ticket_full_png(number: int, token: str, info: TicketSheetInfo) -> by
 
 def single_ticket_pdf(number: int, token: str, info: TicketSheetInfo) -> bytes:
     """The buyer's emailed ticket as a single-page PDF: a portrait 10:11 card
-    (raffle details + registration QR), not the wide seller strip used for
-    printing."""
+    (logo + raffle details + registration QR), not the wide seller strip used
+    for printing."""
+    logos = _decode_logos(info.logos, target_h=48)
     buf = io.BytesIO()
-    render_ticket_card(number, token, info).save(
+    render_ticket_card(number, token, info, logos).save(
         buf, format="PDF", resolution=150.0
     )
     return buf.getvalue()

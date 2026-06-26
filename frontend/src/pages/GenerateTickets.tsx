@@ -22,8 +22,8 @@ export default function GenerateTickets() {
   const [busy, setBusy] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // QR codes load on demand (one request each). "Reveal all" flips this on so
-  // every card fetches its own QR; otherwise each loads only when clicked.
+  // QR codes load on demand (one request each). "Show all" flips this on so
+  // every card fetches + shows its QR; toggling it off hides them all again.
   const [revealAll, setRevealAll] = useState(false);
 
   async function refresh() {
@@ -100,8 +100,8 @@ export default function GenerateTickets() {
       <p className="mb-6 text-sm text-gray-500">
         Each ticket shows its serial (#{eventCode ?? "CODE"}-1, …) and a QR the
         organizer scans to register a buyer. QR codes load on demand — click
-        “Show QR” on a ticket, or “Reveal all”. Download the A4 PDF to print in
-        bulk.
+        “Show QR” on a ticket (click it again to hide), or “Show all QR codes”.
+        Download the A4 PDF to print in bulk.
       </p>
 
       <form
@@ -150,13 +150,13 @@ export default function GenerateTickets() {
         <p className="text-sm font-medium text-gray-600">
           {tickets.length} ticket{tickets.length === 1 ? "" : "s"} generated
         </p>
-        {tickets.length > 0 && !revealAll && (
+        {tickets.length > 0 && (
           <button
             type="button"
-            onClick={() => setRevealAll(true)}
+            onClick={() => setRevealAll((v) => !v)}
             className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50"
           >
-            Reveal all QR codes
+            {revealAll ? "Hide all QR codes" : "Show all QR codes"}
           </button>
         )}
       </div>

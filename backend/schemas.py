@@ -42,6 +42,21 @@ class AdminLoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=256)
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str = Field(min_length=1)
+    password: str = Field(min_length=8, max_length=128)
+
+
+class MessageResponse(BaseModel):
+    """Generic one-line result for actions with no resource to return."""
+
+    message: str
+
+
 class OrgSummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

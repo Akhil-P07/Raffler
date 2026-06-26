@@ -16,6 +16,8 @@ export default function Login() {
   const [error, setError] = useState<string | null>(
     GOOGLE_ERRORS[params.get("error") ?? ""] ?? null
   );
+  // Shown after a successful password reset redirects back here.
+  const justReset = params.get("reset") === "1";
 
   // After login, return to where the seller was headed (e.g. a scanned ticket).
   // Only allow same-origin relative paths (no "//host" protocol-relative URLs).
@@ -56,6 +58,12 @@ export default function Login() {
         <h1 className="text-xl font-bold text-brand">Raffler</h1>
         <p className="mb-4 mt-1 text-sm text-gray-500">Sign in to your account.</p>
 
+        {justReset && (
+          <p className="mb-4 rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700">
+            Your password has been reset. Sign in with your new password.
+          </p>
+        )}
+
         <button
           type="button"
           onClick={onGoogle}
@@ -84,9 +92,17 @@ export default function Login() {
             />
           </div>
           <div>
-            <label htmlFor="password" className="block text-sm font-medium text-gray-700">
-              Password
-            </label>
+            <div className="flex items-center justify-between">
+              <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+                Password
+              </label>
+              <Link
+                to="/forgot-password"
+                className="text-xs font-medium text-brand hover:underline"
+              >
+                Forgot password?
+              </Link>
+            </div>
             <input
               id="password"
               type="password"

@@ -11,8 +11,11 @@ import AdminDashboard from "./pages/AdminDashboard";
 import AcceptInvite from "./pages/AcceptInvite";
 import AuthCallback from "./pages/AuthCallback";
 import CreateRaffle from "./pages/CreateRaffle";
+import EntriesPage from "./pages/EntriesPage";
+import ForgotPassword from "./pages/ForgotPassword";
 import GenerateTickets from "./pages/GenerateTickets";
 import Login from "./pages/Login";
+import ResetPassword from "./pages/ResetPassword";
 import OrgSettings from "./pages/OrgSettings";
 import Register from "./pages/Register";
 import Signup from "./pages/Signup";
@@ -130,6 +133,8 @@ export default function App() {
     pathname === "/login" ||
     pathname === "/signup" ||
     pathname === "/accept-invite" ||
+    pathname === "/forgot-password" ||
+    pathname === "/reset-password" ||
     pathname.startsWith("/auth/callback")
   ) {
     return (
@@ -137,6 +142,8 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
         <Route path="/accept-invite" element={<AcceptInvite />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/auth/callback" element={<AuthCallback />} />
       </Routes>
     );
@@ -154,6 +161,7 @@ export default function App() {
         <Route path="/" element={<AdminDashboard />} />
         <Route path="/raffles/new" element={<CreateRaffle />} />
         <Route path="/raffles/:raffleId/tickets" element={<GenerateTickets />} />
+        <Route path="/raffles/:raffleId/entries" element={<EntriesPage />} />
         <Route path="/register/:token" element={<Register />} />
         <Route path="/settings" element={<OrgSettings />} />
         <Route path="*" element={<Navigate to="/" replace />} />

@@ -7,6 +7,7 @@ join as members by accepting an emailed link. The premium allowlist grants the
 club plan to the orgs an allowlisted email owns. No API keys — all
 session-based.
 """
+import hashlib
 import hmac
 import logging
 from datetime import datetime, timedelta, timezone
@@ -41,16 +42,19 @@ from schemas import (
     AcceptInviteRequest,
     AdminLoginRequest,
     AuthResponse,
+    ForgotPasswordRequest,
     GoogleAuthUrlResponse,
     InviteInfoResponse,
     LoginRequest,
     MeResponse,
+    MessageResponse,
     OrgMembershipSummary,
     OrgMemberRequest,
     OrgMemberResponse,
     OrgSummary,
     PremiumEmailRequest,
     PremiumEmailResponse,
+    ResetPasswordRequest,
     SelectOrgRequest,
     SignupRequest,
     TokenResponse,
@@ -59,15 +63,17 @@ from schemas import (
 from security import (
     create_admin_token,
     create_oauth_state,
+    create_password_reset_token,
     create_session_token,
     decode_admin_email,
+    decode_password_reset_token,
     google_auth_url,
     google_exchange_code,
     hash_password,
     verify_oauth_state,
     verify_password,
 )
-from services.email import send_invite_email
+from services.email import send_invite_email, send_password_reset_email
 
 router = APIRouter(tags=["auth"])
 
@@ -265,6 +271,66 @@ def select_org(
             detail="You are not a member of that organization.",
         )
     return _auth_response(db, user, membership)
+
+
+# --- forgot / reset password ----------------------------------------------
+
+
+def _pwd_fingerprint(user: User) -> str:
+    """A short digest of the user's current credential state. It changes the
+    moment the password hash changes, so a reset link can't be replayed once
+    it's been used (the new hash no longer matches the token's fingerprint)."""
+    basis = user.password_hash or f"nopw:{user.id}"
+    return hashlib.sha256(basis.encode()).hexdigest()[:16]
+
+
+@router.post("/auth/forgot-password", response_model=MessageResponse)
+@limiter.limit(LOGIN_LIMIT)
+def forgot_password(
+    request: Request,
+    body: ForgotPasswordRequest,
+    background: BackgroundTasks,
+    db: Session = Depends(get_db),
+) -> MessageResponse:
+    """Email a password-reset link if the address has an account. Always returns
+    the same message so it can't be used to probe which emails are registered."""
+    email = _norm(body.email)
+    user = db.scalar(select(User).where(User.email == email))
+    if user is not None:
+        token, _ = create_password_reset_token(user.id, _pwd_fingerprint(user))
+        front = settings.FRONTEND_ORIGIN.rstrip("/")
+        reset_url = f"{front}/reset-password?token={token}"
+        background.add_task(send_password_reset_email, user.email, reset_url)
+    return MessageResponse(
+        message="If an account exists for that email, a reset link is on its way."
+    )
+
+
+@router.post("/auth/reset-password", response_model=MessageResponse)
+@limiter.limit(LOGIN_LIMIT)
+def reset_password(
+    request: Request,
+    body: ResetPasswordRequest,
+    db: Session = Depends(get_db),
+) -> MessageResponse:
+    """Set a new password from a valid reset token."""
+    invalid = HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="This reset link is invalid or has expired. Request a new one.",
+    )
+    claims = decode_password_reset_token(body.token)
+    if claims is None:
+        raise invalid
+    user = db.get(User, claims["sub"])
+    # A fingerprint mismatch means the link was already used or the password has
+    # since changed — reject it either way.
+    if user is None or claims.get("fp") != _pwd_fingerprint(user):
+        raise invalid
+    user.password_hash = hash_password(body.password)
+    db.commit()
+    return MessageResponse(
+        message="Your password has been reset. You can now sign in."
+    )
 
 
 # --- Google OAuth ---------------------------------------------------------

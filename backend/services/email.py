@@ -129,6 +129,78 @@ def send_invite_email(to_email: str, org_name: str, accept_url: str) -> None:
     )
 
 
+def send_password_reset_email(to_email: str, reset_url: str) -> None:
+    """Email a password-reset link. No-op if Brevo is unconfigured."""
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f4f4f5;font-family:Arial,Helvetica,sans-serif">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:32px 0">
+  <tr><td align="center">
+    <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:10px;overflow:hidden;max-width:600px;box-shadow:0 2px 8px rgba(0,0,0,.08)">
+
+      <!-- Header -->
+      <tr>
+        <td style="background:{_BRAND};padding:28px 32px">
+          <p style="margin:0;color:#ffffff;font-size:22px;font-weight:700">Reset your password</p>
+        </td>
+      </tr>
+
+      <!-- Body -->
+      <tr>
+        <td style="padding:32px">
+          <p style="margin:0 0 16px;color:#111111;font-size:16px;line-height:1.6">
+            We received a request to reset the password for your Raffler account.
+            Click below to choose a new one. This link expires in 30 minutes.
+          </p>
+
+          <table width="100%" cellpadding="0" cellspacing="0" style="margin:28px 0">
+            <tr>
+              <td align="center">
+                <a href="{reset_url}"
+                   style="display:inline-block;background:{_BRAND};color:#ffffff;padding:14px 36px;border-radius:8px;font-weight:700;font-size:16px;text-decoration:none">
+                  Reset Password
+                </a>
+              </td>
+            </tr>
+          </table>
+
+          <p style="margin:0;color:#6b7280;font-size:13px;line-height:1.6">
+            Or paste this link into your browser:<br>
+            <span style="color:{_BRAND_DARK};word-break:break-all">{reset_url}</span>
+          </p>
+        </td>
+      </tr>
+
+      <!-- Footer -->
+      <tr>
+        <td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:16px 32px;text-align:center">
+          <p style="margin:0;color:#9ca3af;font-size:11px;line-height:1.6">
+            If you didn't request a password reset you can safely ignore this email —
+            your password won't change. This message was sent to {to_email}.
+          </p>
+        </td>
+      </tr>
+
+    </table>
+  </td></tr>
+</table>
+</body></html>"""
+
+    _send(
+        {
+            "to": [{"email": to_email}],
+            "subject": "Reset your Raffler password",
+            "htmlContent": html,
+            "textContent": (
+                "We received a request to reset your Raffler password.\n\n"
+                f"Reset it here (expires in 30 minutes): {reset_url}\n\n"
+                "If you didn't request this, you can ignore this email."
+            ),
+        }
+    )
+
+
 def send_ticket_email(
     to_email: str,
     buyer_name: str,

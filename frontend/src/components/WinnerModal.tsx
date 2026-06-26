@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import Confetti from "./Confetti";
 import { ticketSerial } from "../api/client";
 import type { Winner } from "../api/types";
@@ -11,7 +11,9 @@ interface Props {
   onClose: () => void;
 }
 
-/** Overlay announcing the drawn winner(s). The draw is final and recorded. */
+/** Overlay announcing the drawn winner(s). The draw is final and recorded.
+ *  Ticket number and name show immediately; the email stays hidden until the
+ *  user chooses to reveal it (per winner). */
 export default function WinnerModal({
   winners,
   eventCode,
@@ -19,12 +21,18 @@ export default function WinnerModal({
   onClose,
 }: Props) {
   const closeRef = useRef<HTMLButtonElement>(null);
+  // Ids of winners whose email has been revealed by clicking "Show email".
+  const [revealed, setRevealed] = useState<Set<string>>(new Set());
 
   // Move focus into the dialog on open so keyboard/screen-reader users land
   // inside it rather than behind the backdrop.
   useEffect(() => {
     closeRef.current?.focus();
   }, []);
+
+  function reveal(id: string) {
+    setRevealed((prev) => new Set(prev).add(id));
+  }
 
   return (
     <div
@@ -51,11 +59,6 @@ export default function WinnerModal({
           className="mb-4 text-center text-xl font-bold text-gray-900"
         >
           {winners.length > 1 ? "Winners" : "Winner"}
-          {alreadyDrawn && (
-            <span className="ml-2 align-middle text-xs font-normal text-gray-500">
-              (already drawn)
-            </span>
-          )}
         </h2>
 
         <ul className="space-y-3">
@@ -76,15 +79,28 @@ export default function WinnerModal({
                   </span>
                 )}
               </div>
-              <div className="text-sm text-gray-600">
-                Ticket {ticketSerial(eventCode, w.ticket_number)} · {w.email}
+              <div className="mt-0.5 text-sm text-gray-600">
+                Ticket {ticketSerial(eventCode, w.ticket_number)}
+              </div>
+              <div className="mt-1 text-sm">
+                {revealed.has(w.id) ? (
+                  <span className="text-gray-600">{w.email}</span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => reveal(w.id)}
+                    className="font-medium text-brand hover:text-brand-dark"
+                  >
+                    Show email
+                  </button>
+                )}
               </div>
             </li>
           ))}
         </ul>
 
         <p className="mt-4 text-center text-xs text-gray-500">
-          Contact the winner using the email above. This result is final and
+          Reveal an email to contact the winner. This result is final and
           recorded.
         </p>
 

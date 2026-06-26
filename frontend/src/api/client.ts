@@ -146,6 +146,26 @@ export async function googleAuthUrl(): Promise<string> {
   return (await pub.get<{ auth_url: string }>("/auth/google/login")).data.auth_url;
 }
 
+/** Request a password-reset email. Returns the (generic) server message. */
+export async function requestPasswordReset(email: string): Promise<string> {
+  return (
+    await pub.post<{ message: string }>("/auth/forgot-password", { email })
+  ).data.message;
+}
+
+/** Set a new password from a reset token. Returns the server message. */
+export async function resetPassword(
+  token: string,
+  password: string
+): Promise<string> {
+  return (
+    await pub.post<{ message: string }>("/auth/reset-password", {
+      token,
+      password,
+    })
+  ).data.message;
+}
+
 // --- Raffles --------------------------------------------------------------
 
 export async function listRaffles(): Promise<Raffle[]> {

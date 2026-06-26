@@ -122,6 +122,29 @@ def verify_oauth_state(token: str) -> bool:
     return payload.get("typ") == "oauth_state"
 
 
+def create_password_reset_token(user_id: str, fingerprint: str) -> tuple[str, int]:
+    """Short-lived signed token for a password-reset link. The fingerprint binds
+    it to the user's current credential state, so the link stops working once
+    the password is changed — i.e. it's effectively single-use."""
+    return _encode(
+        {"typ": "pwd_reset", "sub": user_id, "fp": fingerprint},
+        timedelta(minutes=30),
+    )
+
+
+def decode_password_reset_token(token: str) -> dict[str, Any] | None:
+    """Return the reset-token claims if valid, unexpired, and of type 'pwd_reset'."""
+    try:
+        payload = jwt.decode(
+            token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM]
+        )
+    except JWTError:
+        return None
+    if payload.get("typ") != "pwd_reset" or "sub" not in payload:
+        return None
+    return payload
+
+
 # --- Google OAuth ---------------------------------------------------------
 
 
