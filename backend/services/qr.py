@@ -176,13 +176,15 @@ def _vertical_text(text: str, font) -> Image.Image:
     return img.rotate(90, expand=True)
 
 
-# --- layout: a single ~10:11 ticket -------------------------------------
-# The ticket is rendered once at a fixed resolution, then scaled to fit the
-# A4 print grid (or shown as-is in the admin preview), so the on-screen view
-# matches the print exactly.
-_TW = 620
-_TH = round(_TW * 11 / 10)  # 10:11 width:height
-_WRITE_IN = "_" * 26  # blank pen write-in line in the stub
+# --- layout: a single WIDE ticket (full A4 width) -----------------------
+# A wide strip so the print sheet stacks tickets vertically across the full
+# page width — you separate them with straight horizontal cuts and waste no
+# paper. Rendered at the exact width it prints at, so no scaling is needed.
+_TW = 1180  # full A4 content width at 150 DPI (1240 page - 2*30 margin)
+_TH = 270
+_STUB_W = 240  # left tear-off stub (kept by the seller: serial + QR + write-in)
+_SERIAL_W = 48  # right serial strip
+_WRITE_IN = "_" * 24  # blank pen write-in fallback
 
 
 def _decode_logos(raw_list: list[bytes], target_h: int) -> list[Image.Image]:
@@ -209,96 +211,131 @@ def _decode_logos(raw_list: list[bytes], target_h: int) -> list[Image.Image]:
 def render_ticket(
     number: int, token: str, info: TicketSheetInfo, logos: list[Image.Image]
 ) -> Image.Image:
-    """Render one legally-compliant raffle ticket as a ~10:11 RGB image:
-    logo row → org + GOC id → RAFFLE → prize → drawing → price → QR →
-    'need not be present' statement → perforation → tear-off stub (serial +
-    blank Name/Address/Phone write-in lines)."""
+    """Render one legally-compliant raffle ticket as a WIDE full-width strip:
+
+    - Left tear-off STUB (the seller keeps it after the sale): serial, a QR of
+      the same registration token, and Name / Address / Phone write-in rules.
+    - BODY: logo (top-left), title (centred), price (top-right), a full-width
+      prize line, the drawing details + a 'scan to register' QR along the
+      bottom, and the 'need not be present' statement.
+    - Right serial strip.
+    """
     img = Image.new("RGB", (_TW, _TH), "white")
     draw = ImageDraw.Draw(img)
     draw.rectangle([0, 0, _TW - 1, _TH - 1], outline="black", width=3)
 
-    pad = 22
-    cw = _TW - 2 * pad  # content width
-    cy = pad
+    body_x0 = _STUB_W
+    body_x1 = _TW - _SERIAL_W
 
-    f_org = _load_font(28, bold=True)
-    f_goc = _load_font(14)
-    f_title = _load_font(44, bold=True)
-    f_sub = _load_font(19)
-    f_label = _load_font(16, bold=True)
-    f_body = _load_font(18)
-    f_price = _load_font(26, bold=True)
-    f_stmt = _load_font(15, bold=True)
-    f_serial = _load_font(22, bold=True)
-    f_stub = _load_font(17)
+    f_stub = _load_font(14)
+    f_org = _load_font(23, bold=True)
+    f_goc = _load_font(12)
+    f_title = _load_font(32, bold=True)
+    f_sub = _load_font(17)
+    f_label = _load_font(15, bold=True)
+    f_body = _load_font(15)
+    f_price = _load_font(30, bold=True)
+    f_stmt = _load_font(14, bold=True)
+    f_serial = _load_font(17, bold=True)
 
-    def centered(text: str, font, y: int, fill: str = "black") -> int:
+    qr_full = _qr_image(token, box_size=4, border=1)
+    serial = f"Ticket #{number}"
+
+    # Perforation (dashed) separating stub | body | serial strip.
+    for px in (body_x0, body_x1):
+        for yy in range(6, _TH - 6, 11):
+            draw.line([px, yy, px, yy + 5], fill="black", width=1)
+
+    # --- left stub (seller keeps): serial, QR, write-in rules ---
+    sw0 = draw.textlength(serial, font=f_serial)
+    draw.text(((_STUB_W - sw0) / 2, 10), serial, font=f_serial, fill="black")
+    sq = 78
+    img.paste(qr_full.resize((sq, sq)), ((_STUB_W - sq) // 2, 32))
+    wy = 32 + sq + 12
+    for label in ("Name:", "Address:", "Phone:"):
+        draw.text((14, wy), label, font=f_stub, fill="black")
+        lx = 14 + draw.textlength(label + " ", font=f_stub)
+        rule_y = wy + f_stub.size
+        draw.line([lx, rule_y, _STUB_W - 12, rule_y], fill="black", width=1)
+        wy += f_stub.size + 16
+
+    # --- right serial strip (vertical) ---
+    v = _vertical_text(serial, f_serial)
+    img.paste(v, (body_x1 + (_SERIAL_W - v.width) // 2, (_TH - v.height) // 2), v)
+
+    # --- body: use the full width ---
+    pad = 18
+    bx = body_x0 + pad
+    bw = body_x1 - body_x0 - 2 * pad
+
+    def centered(text: str, font, y: int) -> int:
         w = draw.textlength(text, font=font)
-        draw.text(((_TW - w) / 2, y), text, font=font, fill=fill)
-        return y + font.size + 7
+        draw.text((body_x0 + (body_x1 - body_x0 - w) / 2, y), text, font=font, fill="black")
+        return y + font.size + 4
 
-    def left(text: str, font, y: int) -> int:
-        draw.text((pad, y), text, font=font, fill="black")
-        return y + font.size + 5
-
-    # Logo row (co-hosting organizations).
+    # Logo(s) top-left.
+    logo_bottom = 12
     if logos:
-        gap = 18
-        total = sum(im.width for im in logos) + gap * (len(logos) - 1)
-        lx = max(pad, (_TW - total) // 2)
+        lx, ly = bx, 12
         for im in logos:
-            img.paste(im, (lx, cy))  # logos are flattened onto white (opaque)
-            lx += im.width + gap
-        cy += (logos[0].height if logos else 0) + 10
+            img.paste(im, (lx, ly))
+            lx += im.width + 12
+        logo_bottom = ly + logos[0].height
 
-    cy = centered(info.org_name, f_org, cy)
-    if info.goc_id:
-        cy = centered(f"GOC ID {info.goc_id}", f_goc, cy)
-    cy = centered("RAFFLE", f_title, cy + 4)
-    cy = centered(info.raffle_name, f_sub, cy)
-    cy += 6
-
-    # Prize.
-    cy = left("Enter to win:", f_label, cy)
-    for line in _wrap(draw, info.prizes or _WRITE_IN, f_body, cw)[:2]:
-        cy = left(line, f_body, cy)
-    cy += 4
-
-    # Drawing details + price on the same band.
+    # Price top-right, large.
     price = _price_text(info.ticket_price)
     if price:
         pw = draw.textlength(price, font=f_price)
-        draw.text((_TW - pad - pw, cy), price, font=f_price, fill="black")
-    cy = left("Drawing held:", f_label, cy)
-    if info.drawing_datetime is not None:
-        when = f"{_format_date(info.drawing_datetime)} · {_format_time(info.drawing_datetime)}"
-    else:
-        when = _WRITE_IN
-    cy = left(when, f_body, cy)
+        draw.text((body_x1 - pad - pw, 14), price, font=f_price, fill="black")
+
+    # Title block, centred.
+    hy = 10
+    hy = centered(info.org_name, f_org, hy)
+    if info.goc_id:
+        hy = centered(f"GOC ID {info.goc_id}", f_goc, hy)
+    hy = centered("RAFFLE", f_title, hy + 1)
+    hy = centered(info.raffle_name, f_sub, hy)
+
+    # Prize line — full width, directly under the header (above the QR).
+    py = max(hy, logo_bottom) + 8
+    draw.text((bx, py), "Enter to win:", font=f_label, fill="black")
+    label_w = draw.textlength("Enter to win:  ", font=f_label)
+    prize_lines = _wrap(draw, info.prizes or _WRITE_IN, f_body, bw - label_w)
+    if prize_lines:
+        draw.text((bx + label_w, py + 1), prize_lines[0], font=f_body, fill="black")
+    py += f_label.size + 8
+
+    # 'Scan to register' QR — bottom-right.
+    bq = 92
+    bq_x = body_x1 - bq - pad
+    bq_y = _TH - bq - 28
+    img.paste(qr_full.resize((bq, bq)), (bq_x, bq_y))
+    cap = "Scan to register"
+    cw_ = draw.textlength(cap, font=f_stmt)
+    draw.text((bq_x + (bq - cw_) / 2, bq_y + bq + 3), cap, font=f_stmt, fill="black")
+
+    # Drawing details — bottom-left, filling the width up to the QR.
+    dy = py + 2
+    draw_w = bq_x - bx - 20
+    draw.text((bx, dy), "Drawing held:", font=f_label, fill="black")
+    dy += f_label.size + 4
+    when = (
+        f"{_format_date(info.drawing_datetime)} · {_format_time(info.drawing_datetime)}"
+        if info.drawing_datetime is not None
+        else _WRITE_IN
+    )
+    for line in _wrap(draw, when, f_body, draw_w)[:1]:
+        draw.text((bx, dy), line, font=f_body, fill="black")
+        dy += f_body.size + 4
     if info.drawing_location:
-        for line in _wrap(draw, info.drawing_location, f_body, cw)[:1]:
-            cy = left(line, f_body, cy)
+        for line in _wrap(draw, info.drawing_location, f_body, draw_w)[:1]:
+            draw.text((bx, dy), line, font=f_body, fill="black")
+            dy += f_body.size + 4
 
-    # QR (centered) + caption.
-    qr_size = 150
-    qr = _qr_image(token, box_size=5, border=1).resize((qr_size, qr_size))
-    img.paste(qr, ((_TW - qr_size) // 2, cy + 4))
-    cy += qr_size + 8
-    cy = centered("Scan to register", f_body, cy)
-
-    # "Need not be present" statement.
-    centered(NOT_PRESENT_STATEMENT, f_stmt, cy)
-
-    # --- tear-off stub at the bottom (horizontal perforation) ---
-    stub_top = _TH - 138
-    for xx in range(pad, _TW - pad, 12):
-        draw.line([xx, stub_top, xx + 6, stub_top], fill="black", width=1)
-    sy = stub_top + 12
-    draw.text((pad, sy), f"Ticket #{number}", font=f_serial, fill="black")
-    sy += f_serial.size + 8
-    for label in ("Name:", "Address:", "Phone:"):
-        draw.text((pad, sy), f"{label} {_WRITE_IN}", font=f_stub, fill="black")
-        sy += f_stub.size + 9
+    # "Need not be present" statement — bottom-left.
+    draw.text(
+        (bx, _TH - f_stmt.size - 12), NOT_PRESENT_STATEMENT, font=f_stmt, fill="black"
+    )
 
     return img
 
@@ -322,33 +359,21 @@ def single_ticket_pdf(number: int, token: str, info: TicketSheetInfo) -> bytes:
 
 
 # --- A4 print sheet (multi-page PDF) -------------------------------------
-# A4 at 150 DPI. A 2x3 grid = 6 tickets per page (kept at 2 columns for
-# legibility); each 10:11 ticket is scaled to fit its cell.
+# A4 at 150 DPI. Wide tickets are stacked one per row at full page width, so
+# they're separated with straight horizontal cuts and waste no paper.
 _A4_W, _A4_H = 1240, 1754
-_SHEET_MARGIN, _CELL_GAP = 48, 24
-_COLUMNS, _ROWS = 2, 3
-
-
-def _grid_cell() -> tuple[int, int]:
-    """Cell size (w, h) for a 10:11 ticket that fits the COLS x ROWS grid."""
-    max_w = (_A4_W - 2 * _SHEET_MARGIN - (_COLUMNS - 1) * _CELL_GAP) // _COLUMNS
-    max_h = (_A4_H - 2 * _SHEET_MARGIN - (_ROWS - 1) * _CELL_GAP) // _ROWS
-    cell_w = min(max_w, round(max_h * 10 / 11))
-    return cell_w, round(cell_w * 11 / 10)
+_SHEET_MARGIN_Y, _ROW_GAP = 24, 10
 
 
 def print_sheet_pdf(tickets: list[tuple[int, str]], info: TicketSheetInfo) -> bytes:
-    """Lay every ticket out on A4 pages (2x3 grid) and return a multi-page PDF
-    ready for bulk printing."""
+    """Stack full-width tickets vertically on A4 pages; return a multi-page PDF
+    ready for bulk printing (cut horizontally between tickets)."""
     logos = _decode_logos(info.logos, target_h=40)
 
-    cell_w, cell_h = _grid_cell()
-    per_page = _COLUMNS * _ROWS
-    # Center the whole grid on the page.
-    grid_w = _COLUMNS * cell_w + (_COLUMNS - 1) * _CELL_GAP
-    grid_h = _ROWS * cell_h + (_ROWS - 1) * _CELL_GAP
-    x0 = (_A4_W - grid_w) // 2
-    y0 = (_A4_H - grid_h) // 2
+    x = (_A4_W - _TW) // 2  # center the full-width ticket horizontally
+    per_page = max(
+        1, (_A4_H - 2 * _SHEET_MARGIN_Y + _ROW_GAP) // (_TH + _ROW_GAP)
+    )
 
     pages: list[Image.Image] = []
     page = None
@@ -357,11 +382,8 @@ def print_sheet_pdf(tickets: list[tuple[int, str]], info: TicketSheetInfo) -> by
         if slot == 0:
             page = Image.new("RGB", (_A4_W, _A4_H), "white")
             pages.append(page)
-        r, c = divmod(slot, _COLUMNS)
-        x = x0 + c * (cell_w + _CELL_GAP)
-        y = y0 + r * (cell_h + _CELL_GAP)
-        ticket = render_ticket(number, token, info, logos).resize((cell_w, cell_h))
-        page.paste(ticket, (x, y))
+        y = _SHEET_MARGIN_Y + slot * (_TH + _ROW_GAP)
+        page.paste(render_ticket(number, token, info, logos), (x, y))
 
     if not pages:
         pages.append(Image.new("RGB", (_A4_W, _A4_H), "white"))

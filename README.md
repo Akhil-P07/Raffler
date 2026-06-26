@@ -84,14 +84,14 @@ buyers never self-register; the logged-in seller registers each ticket.
 | DELETE | `/raffles/{id}` | Soft delete (sets `deleted_at`). |
 | POST | `/raffles/{id}/tickets` | Generate N tickets + tokens (plan limit → 403). |
 | GET | `/raffles/{id}/tickets` | List tickets. |
-| GET | `/raffles/{id}/tickets/sheet` | PNG print sheet (compliant ticket faces). |
+| GET | `/raffles/{id}/tickets/sheet` | PDF print sheet — 6 full-width tickets per A4 page (compliant ticket faces). |
 | GET | `/tickets/{ticket_id}/qr` | Single-ticket QR PNG (ownership-checked). |
 | POST | `/raffles/{id}/logos` | Upload a logo (multipart `file`, optional `name`). Max 6, ≤2 MB. |
 | GET | `/raffles/{id}/logos` | List logo metadata (`id`, `name`, `position`). |
 | GET | `/raffles/{id}/logos/{logo_id}` | Logo as `image/png`. |
 | DELETE | `/raffles/{id}/logos/{logo_id}` | Remove a logo. |
-| GET | `/register/{token}` | Seller scans a ticket: returns `owned` + (if owned) number/raffle/registered. |
-| POST | `/register/{token}` | Seller registers the buyer (name + email). 403 if the ticket isn't the seller's org. |
+| GET | `/register/{token}` | Seller scans a ticket: returns `owned` + (if owned) number/raffle/registered + registrant name/email/phone. |
+| POST | `/register/{token}` | Seller registers the buyer (name + email + phone with country code). 403 if the ticket isn't the seller's org. |
 | GET | `/raffles/{id}/entries` | List entries. |
 | GET | `/raffles/{id}/entries/export` | CSV download. |
 | POST | `/raffles/{id}/draw` | Draw winner(s). Idempotent. 5/min. |
@@ -101,14 +101,16 @@ Interactive docs at `/docs` when the backend is running.
 
 ### Compliant raffle tickets (RIT / NY rules)
 
-Printed tickets (the `/tickets/sheet` PNG) carry the legally-required ticket
-face: the authorized organization name + **Games-of-Chance ID** (`goc_id` on the
-org), the **drawing date/time/location**, the consecutive **serial number** (on
-the body and both edges), the **ticket price**, the **prize list**, the exact
-statement *"Ticket holders need not be present to win."*, and a tear-off **stub**
-with blank pen write-in lines (Name / Address / Phone). The QR (encoding the
-unguessable registration token) is printed alongside so the seller can scan it
-at point of sale to register the buyer.
+Printed tickets (the `/tickets/sheet` PDF) are **wide full-width strips** — 6 per
+A4 page, separated with straight horizontal cuts to waste no paper. Each carries
+the legally-required ticket face: the authorized organization name +
+**Games-of-Chance ID** (`goc_id` on the org), the **drawing date/time/location**,
+the consecutive **serial number** (on the body and both edges), the **ticket
+price**, the **prize list**, the exact statement *"Ticket holders need not be
+present to win."*, and a tear-off **stub** the seller keeps after the sale (with
+its own QR plus Name / Address / Phone write-in rules). The QR (encoding the
+unguessable registration token) is printed on both the body and the stub, so the
+seller can scan it at point of sale to register the buyer.
 
 These come from optional, **print-only** raffle fields (no payment/sale
 tracking): `ticket_price`, `prizes`, `drawing_datetime`, `drawing_location` on

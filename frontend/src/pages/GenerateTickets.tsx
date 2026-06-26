@@ -5,7 +5,7 @@ import TicketCard from "../components/TicketCard";
 import {
   downloadTicketSheet,
   errorMessage,
-  fetchTicketPreviewUrl,
+  fetchQrObjectUrl,
   generateTickets,
   getRaffle,
   listTickets,
@@ -69,7 +69,7 @@ export default function GenerateTickets() {
     (async () => {
       for (const t of missing) {
         try {
-          const url = await fetchTicketPreviewUrl(t.id);
+          const url = await fetchQrObjectUrl(t.id);
           if (cancelled) {
             URL.revokeObjectURL(url);
             return;
@@ -179,7 +179,7 @@ export default function GenerateTickets() {
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
         {tickets.map((t) => (
-          <TicketCard key={t.id} ticket={t} previewUrl={previewUrls[t.id] ?? ""} />
+          <TicketCard key={t.id} ticket={t} qrUrl={previewUrls[t.id] ?? ""} />
         ))}
       </div>
     </div>

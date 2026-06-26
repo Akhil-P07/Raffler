@@ -97,6 +97,7 @@ export interface Entry {
   id: string;
   name: string;
   email: string;
+  phone: string | null;
   ticket_number: number;
   registered_at: string;
 }
@@ -126,6 +127,7 @@ export interface RegisterInfo {
   registered: boolean | null;
   registrant_name: string | null;
   registrant_email: string | null;
+  registrant_phone: string | null;
 }
 
 export interface RegisterConfirmation {

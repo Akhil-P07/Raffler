@@ -184,3 +184,27 @@ class TestRegisterPost:
         self._post(client, token, free_org["headers"])
         resp = client.get(f"/register/{token}", headers=free_org["headers"])
         assert resp.json()["registered"] is True
+
+    def test_stores_and_returns_phone(self, client, app_and_db, free_org):
+        _, token = _owned_ticket(client, app_and_db, free_org)
+        resp = client.post(
+            f"/register/{token}",
+            json={
+                "name": "Bob",
+                "email": "bob@example.com",
+                "phone": "+1 5855551234",
+            },
+            headers=free_org["headers"],
+        )
+        assert resp.status_code == 201
+        info = client.get(f"/register/{token}", headers=free_org["headers"]).json()
+        assert info["registrant_phone"] == "+1 5855551234"
+
+    def test_invalid_phone_returns_422(self, client, app_and_db, free_org):
+        _, token = _owned_ticket(client, app_and_db, free_org)
+        resp = client.post(
+            f"/register/{token}",
+            json={"name": "Bob", "email": "bob@example.com", "phone": "abc"},
+            headers=free_org["headers"],
+        )
+        assert resp.status_code == 422

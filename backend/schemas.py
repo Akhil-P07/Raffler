@@ -4,6 +4,7 @@ Every request body is validated here so routers never touch raw dicts.
 Response models are explicit so internal columns (api_key hash, org_id on
 public responses) never leak by accident.
 """
+import re
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
@@ -292,11 +293,15 @@ class RegisterInfoResponse(BaseModel):
     registered: bool | None = None
     registrant_name: str | None = None
     registrant_email: str | None = None
+    registrant_phone: str | None = None
 
 
 class RegisterRequest(BaseModel):
     name: str = Field(max_length=100)
     email: EmailStr
+    # Full international phone, including country code (e.g. "+1 5855551234").
+    # Optional at the API for backwards compatibility; the UI requires it.
+    phone: str | None = Field(default=None, max_length=30)
 
     @field_validator("name")
     @classmethod
@@ -304,6 +309,21 @@ class RegisterRequest(BaseModel):
         v = v.strip()
         if not v:
             raise ValueError("name must not be empty")
+        return v
+
+    @field_validator("phone")
+    @classmethod
+    def clean_phone(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip()
+        if not v:
+            return None
+        if not re.fullmatch(r"\+?[0-9 ()\-]{6,30}", v):
+            raise ValueError("phone may contain only +, digits, spaces, - and ()")
+        digits = re.sub(r"\D", "", v)
+        if not (7 <= len(digits) <= 15):
+            raise ValueError("phone must have 7 to 15 digits (with country code)")
         return v
 
 
@@ -325,6 +345,7 @@ class EntryResponse(BaseModel):
     id: str
     name: str
     email: str
+    phone: str | None = None
     ticket_number: int
     registered_at: datetime
 

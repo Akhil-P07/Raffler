@@ -288,6 +288,9 @@ class Entry(Base):
     )
     name: Mapped[str] = mapped_column(String, nullable=False)
     email: Mapped[str] = mapped_column(String, nullable=False)
+    # Full international phone number, E.164-style (e.g. "+1 5855551234").
+    # Nullable so historical entries (and registrations without a phone) are fine.
+    phone: Mapped[str | None] = mapped_column(String, nullable=True)
     registered_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -343,9 +346,25 @@ class RaffleLogo(Base):
     raffle: Mapped["Raffle"] = relationship(back_populates="logos")
 
 
+def _add_missing_columns() -> None:
+    """Tiny idempotent migration for additive columns (no Alembic in this app).
+    Adds columns introduced after the table already existed, so deployed
+    databases pick them up on the next startup. Safe to run every time."""
+    from sqlalchemy import inspect, text
+
+    inspector = inspect(engine)
+    if "entries" not in inspector.get_table_names():
+        return
+    existing = {col["name"] for col in inspector.get_columns("entries")}
+    if "phone" not in existing:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE entries ADD COLUMN phone VARCHAR"))
+
+
 def init_db() -> None:
     """Create tables if they do not exist. Called on app startup."""
     Base.metadata.create_all(bind=engine)
+    _add_missing_columns()
 
 
 def get_db():

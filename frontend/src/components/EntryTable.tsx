@@ -130,6 +130,7 @@ export default function EntryTable({ entries, selectable, onDeregister }: Props)
                 </button>
               </th>
               <th className="px-3 py-2 font-semibold">Email</th>
+              <th className="px-3 py-2 font-semibold">Phone</th>
               <th className="px-3 py-2" aria-sort={ariaSort("registered_at")}>
                 <button
                   type="button"
@@ -158,6 +159,7 @@ export default function EntryTable({ entries, selectable, onDeregister }: Props)
                 <td className="px-3 py-2 font-mono">#{e.ticket_number}</td>
                 <td className="px-3 py-2">{e.name}</td>
                 <td className="px-3 py-2 text-gray-600">{e.email}</td>
+                <td className="px-3 py-2 text-gray-600">{e.phone ?? "—"}</td>
                 <td className="px-3 py-2 text-gray-500">
                   {new Date(e.registered_at).toLocaleString()}
                 </td>

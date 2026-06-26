@@ -189,13 +189,12 @@ export async function listTickets(raffleId: string): Promise<Ticket[]> {
 }
 
 /**
- * Fetch a single ticket's full preview (the exact 10:11 design that prints) as
- * an object URL. The endpoint is ownership-checked, so a plain <img src> can't
- * attach the auth header — we fetch the bytes authenticated and wrap them.
- * Caller is responsible for URL.revokeObjectURL when done.
+ * Fetch a single ticket's QR PNG as an object URL. The endpoint is
+ * ownership-checked, so a plain <img src> can't attach the auth header — we
+ * fetch the bytes authenticated and wrap them. Caller revokes the URL.
  */
-export async function fetchTicketPreviewUrl(ticketId: string): Promise<string> {
-  const res = await authed.get(`/tickets/${ticketId}/preview`, {
+export async function fetchQrObjectUrl(ticketId: string): Promise<string> {
+  const res = await authed.get(`/tickets/${ticketId}/qr`, {
     responseType: "blob",
   });
   return URL.createObjectURL(res.data as Blob);
@@ -400,9 +399,14 @@ export async function getRegisterInfo(token: string): Promise<RegisterInfo> {
 export async function submitRegistration(
   token: string,
   name: string,
-  email: string
+  email: string,
+  phone: string
 ): Promise<RegisterConfirmation> {
   return (
-    await authed.post<RegisterConfirmation>(`/register/${token}`, { name, email })
+    await authed.post<RegisterConfirmation>(`/register/${token}`, {
+      name,
+      email,
+      phone,
+    })
   ).data;
 }

@@ -232,10 +232,17 @@ def get_tickets_from_db(db_session, database_mod, raffle_id):
     return tickets
 
 
-def register_ticket(client, token, headers, name="Alice", email="alice@example.com"):
+def register_ticket(
+    client,
+    token,
+    headers,
+    name="Alice",
+    email="alice@example.com",
+    phone="+1 5855550100",
+):
     """Register a ticket as the owning org (registration is seller-authenticated)."""
     return client.post(
         f"/register/{token}",
-        json={"name": name, "email": email},
+        json={"name": name, "email": email, "phone": phone},
         headers=headers,
     )

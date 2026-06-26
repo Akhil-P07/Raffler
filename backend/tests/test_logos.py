@@ -639,5 +639,5 @@ class TestPrintSheetWithLogos:
         assert resp.headers["content-type"] == "image/png"
         img = Image.open(io.BytesIO(resp.content))
         assert img.format == "PNG"
-        # The ticket is ~10:11 (slightly taller than wide).
-        assert img.height > img.width
+        # The ticket is a wide full-width strip (much wider than tall).
+        assert img.width > img.height

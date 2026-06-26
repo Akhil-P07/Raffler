@@ -85,12 +85,13 @@ def register_info(
     if raffle.org_id != org.id:
         return RegisterInfoResponse(owned=False)
 
-    registrant_name = registrant_email = None
+    registrant_name = registrant_email = registrant_phone = None
     if ticket.registered:
         entry = db.scalar(select(Entry).where(Entry.ticket_id == ticket.id))
         if entry is not None:
             registrant_name = entry.name
             registrant_email = entry.email
+            registrant_phone = entry.phone
 
     return RegisterInfoResponse(
         owned=True,
@@ -99,6 +100,7 @@ def register_info(
         registered=ticket.registered,
         registrant_name=registrant_name,
         registrant_email=registrant_email,
+        registrant_phone=registrant_phone,
     )
 
 
@@ -137,6 +139,7 @@ def register(
         raffle_id=raffle.id,
         name=body.name,
         email=str(body.email),
+        phone=body.phone,
     )
     ticket.registered = True
     db.add(entry)

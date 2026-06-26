@@ -16,6 +16,32 @@ type LoadState =
   | { kind: "notfound" }
   | { kind: "done"; confirmation: RegisterConfirmation };
 
+// Common international dialing codes. The selected value is the dial code,
+// which is prefixed onto the typed number before saving (e.g. "+1 5855551234").
+const COUNTRY_CODES: { label: string; code: string }[] = [
+  { label: "United States / Canada (+1)", code: "+1" },
+  { label: "United Kingdom (+44)", code: "+44" },
+  { label: "India (+91)", code: "+91" },
+  { label: "Australia (+61)", code: "+61" },
+  { label: "Germany (+49)", code: "+49" },
+  { label: "France (+33)", code: "+33" },
+  { label: "Spain (+34)", code: "+34" },
+  { label: "Italy (+39)", code: "+39" },
+  { label: "Netherlands (+31)", code: "+31" },
+  { label: "Ireland (+353)", code: "+353" },
+  { label: "China (+86)", code: "+86" },
+  { label: "Japan (+81)", code: "+81" },
+  { label: "South Korea (+82)", code: "+82" },
+  { label: "Singapore (+65)", code: "+65" },
+  { label: "UAE (+971)", code: "+971" },
+  { label: "Saudi Arabia (+966)", code: "+966" },
+  { label: "Brazil (+55)", code: "+55" },
+  { label: "Mexico (+52)", code: "+52" },
+  { label: "Nigeria (+234)", code: "+234" },
+  { label: "South Africa (+27)", code: "+27" },
+  { label: "New Zealand (+64)", code: "+64" },
+];
+
 /**
  * Seller-side ticket registration. The seller scans a ticket's QR (which opens
  * this page in their logged-in portal); the server confirms the ticket belongs
@@ -28,6 +54,8 @@ export default function Register() {
   const [state, setState] = useState<LoadState>({ kind: "loading" });
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [countryCode, setCountryCode] = useState("+1");
+  const [phone, setPhone] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inFlight = useRef(false);
@@ -59,11 +87,17 @@ export default function Register() {
       setError("Please enter the buyer's name.");
       return;
     }
+    const digits = phone.replace(/\D/g, "");
+    if (digits.length < 4) {
+      setError("Please enter the buyer's phone number.");
+      return;
+    }
+    const fullPhone = `${countryCode} ${phone.trim()}`;
     inFlight.current = true;
     setSubmitting(true);
     setError(null);
     try {
-      const confirmation = await submitRegistration(token, name, email);
+      const confirmation = await submitRegistration(token, name, email, fullPhone);
       setState({ kind: "done", confirmation });
     } catch (err) {
       setError(errorMessage(err, "Could not register this ticket."));
@@ -121,6 +155,11 @@ export default function Register() {
               <p className="text-sm text-gray-600">
                 {state.info.registrant_email ?? ""}
               </p>
+              {state.info.registrant_phone && (
+                <p className="text-sm text-gray-600">
+                  {state.info.registrant_phone}
+                </p>
+              )}
             </div>
           </div>
         )}
@@ -170,6 +209,39 @@ export default function Register() {
                   autoComplete="off"
                   inputMode="email"
                 />
+              </div>
+              <div>
+                <label
+                  htmlFor="phone"
+                  className="block text-sm font-medium text-gray-700"
+                >
+                  Buyer phone
+                </label>
+                <div className="mt-1 flex gap-2">
+                  <select
+                    aria-label="Country code"
+                    value={countryCode}
+                    onChange={(e) => setCountryCode(e.target.value)}
+                    className="rounded-lg border border-gray-300 px-2 py-3 text-sm focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+                  >
+                    {COUNTRY_CODES.map((c) => (
+                      <option key={c.label} value={c.code}>
+                        {c.code}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    id="phone"
+                    type="tel"
+                    required
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="585 555 1234"
+                    className="w-full rounded-lg border border-gray-300 px-3 py-3 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+                    autoComplete="off"
+                    inputMode="tel"
+                  />
+                </div>
               </div>
               <p
                 role="alert"
