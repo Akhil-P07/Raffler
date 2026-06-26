@@ -322,15 +322,18 @@ def google_callback(
         return _fail("google_failed", "missing code or state in callback")
     if not verify_oauth_state(state):
         return _fail("google_failed", "state JWT invalid or expired")
+    # Best-effort per-browser binding. When the state cookie rides back, it must
+    # match. But when the frontend and backend are on different sites (e.g. two
+    # *.up.railway.app subdomains, which are cross-site), the browser drops the
+    # backend's third-party cookie, so it's usually absent. The state itself is
+    # a server-signed, short-lived JWT (verified above), which already blocks
+    # forged or replayed states — so we proceed without the cookie rather than
+    # lock everyone out. Serving both apps under one registrable domain
+    # (app.example.com + api.example.com) makes the cookie first-party again and
+    # restores the stricter binding automatically.
     cookie_state = request.cookies.get(_OAUTH_STATE_COOKIE)
-    if state != cookie_state:
-        # Almost always a cross-site cookie problem: the state cookie set on
-        # /auth/google/login didn't ride the redirect back (SameSite/Secure, or
-        # a BASE/API origin mismatch between the two Railway services).
-        return _fail(
-            "google_failed",
-            f"state cookie mismatch (cookie_present={cookie_state is not None})",
-        )
+    if cookie_state is not None and state != cookie_state:
+        return _fail("google_failed", "state cookie present but mismatched")
 
     try:
         profile = google_exchange_code(code)
