@@ -36,9 +36,16 @@ export default function AdminDashboard() {
   const [showWinners, setShowWinners] = useState(false);
   const [alreadyDrawn, setAlreadyDrawn] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [countdown, setCountdown] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Hard guard against a re-entrant draw (the draw is final and irreversible).
   const drawInFlight = useRef(false);
+  const countdownInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Clean up the countdown interval if the component unmounts mid-countdown.
+  useEffect(() => () => {
+    if (countdownInterval.current) clearInterval(countdownInterval.current);
+  }, []);
 
   async function loadRaffles() {
     setRaffles(await listRaffles());
@@ -80,11 +87,40 @@ export default function AdminDashboard() {
       const res = await drawRaffle(detail.id, prizeCount);
       setWinners(res.winners);
       setAlreadyDrawn(res.already_drawn);
-      setShowWinners(true);
-      await Promise.all([selectRaffle(detail.id), loadRaffles()]);
+
+      // Kick off sidebar/header refresh in the background — these don't block the reveal.
+      Promise.all([selectRaffle(detail.id), loadRaffles()]).catch(() => {});
+
+      if (res.already_drawn) {
+        // Re-viewing a previously recorded draw: skip the countdown.
+        setShowWinners(true);
+        setBusy(false);
+        drawInFlight.current = false;
+      } else {
+        // Fresh draw: 3 → 2 → 1 countdown, then reveal.
+        setCountdown(3);
+        let n = 3;
+        countdownInterval.current = setInterval(() => {
+          n -= 1;
+          if (n <= 0) {
+            clearInterval(countdownInterval.current!);
+            countdownInterval.current = null;
+            setCountdown(null);
+            setShowWinners(true);
+            setBusy(false);
+            drawInFlight.current = false;
+          } else {
+            setCountdown(n);
+          }
+        }, 1000);
+      }
     } catch (err) {
       setError(errorMessage(err, "Could not run the draw."));
-    } finally {
+      setCountdown(null);
+      if (countdownInterval.current) {
+        clearInterval(countdownInterval.current);
+        countdownInterval.current = null;
+      }
       setBusy(false);
       drawInFlight.current = false;
     }
@@ -326,6 +362,23 @@ export default function AdminDashboard() {
           )}
         </section>
       </div>
+
+      {/* Countdown overlay — shown between draw API response and winner modal */}
+      {countdown !== null && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
+          aria-live="assertive"
+          aria-label={`Drawing in ${countdown}`}
+        >
+          <span
+            key={countdown}
+            className="select-none font-bold text-white"
+            style={{ fontSize: "14rem", lineHeight: 1, animation: "countdownPop 0.9s ease-out forwards" }}
+          >
+            {countdown}
+          </span>
+        </div>
+      )}
 
       {showWinners && (
         <WinnerModal

@@ -174,7 +174,7 @@ class CreateRaffleRequest(BaseModel):
     drawing_datetime: datetime | None = None
     drawing_location: str | None = Field(default=None, max_length=200)
     # Special information / terms printed on every ticket (e.g. claim window).
-    ticket_notes: str | None = Field(default=None, max_length=300)
+    ticket_notes: str | None = Field(default=None, max_length=150)
 
     @field_validator("name")
     @classmethod
@@ -197,7 +197,7 @@ class UpdateRaffleRequest(BaseModel):
     prizes: str | None = Field(default=None, max_length=500)
     drawing_datetime: datetime | None = None
     drawing_location: str | None = Field(default=None, max_length=200)
-    ticket_notes: str | None = Field(default=None, max_length=300)
+    ticket_notes: str | None = Field(default=None, max_length=150)
 
     @field_validator("name")
     @classmethod

@@ -168,6 +168,9 @@ def register(
             raffle.name,
             ticket.ticket_number,
             pdf,
+            org.name,
+            raffle.drawing_datetime,
+            raffle.event_code,
         )
 
     return RegisterConfirmation(

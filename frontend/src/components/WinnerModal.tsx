@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import Confetti from "./Confetti";
 import { ticketSerial } from "../api/client";
 import type { Winner } from "../api/types";
 
@@ -38,9 +39,12 @@ export default function WinnerModal({
       }}
     >
       <div
-        className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl"
+        className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl overflow-hidden"
+        style={{ position: "relative", animation: "modalEnter 0.35s ease-out" }}
         onClick={(e) => e.stopPropagation()}
       >
+        {!alreadyDrawn && <Confetti />}
+
         <div className="mb-1 text-center text-4xl">🎉</div>
         <h2
           id="winner-title"
@@ -55,10 +59,14 @@ export default function WinnerModal({
         </h2>
 
         <ul className="space-y-3">
-          {winners.map((w) => (
+          {winners.map((w, index) => (
             <li
               key={w.id}
               className="rounded-lg border border-brand/30 bg-brand/5 p-3"
+              style={{
+                animation: "modalEnter 0.3s ease-out both",
+                animationDelay: `${0.15 + index * 0.1}s`,
+              }}
             >
               <div className="flex items-center justify-between">
                 <span className="font-semibold text-gray-900">{w.name}</span>

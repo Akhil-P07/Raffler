@@ -143,7 +143,7 @@ export default function CreateRaffle() {
           <textarea
             id="ticket-notes"
             rows={2}
-            maxLength={300}
+            maxLength={150}
             value={ticketNotes}
             onChange={(e) => setTicketNotes(e.target.value)}
             placeholder="e.g. If unclaimed within 24 hours, the prize is emailed to the registered address."

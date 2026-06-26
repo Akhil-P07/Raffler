@@ -213,7 +213,8 @@ def _decode_logos(raw_list: list[bytes], target_h: int) -> list[Image.Image]:
 
 
 def render_ticket(
-    number: int, token: str, info: TicketSheetInfo, logos: list[Image.Image]
+    number: int, token: str, info: TicketSheetInfo, logos: list[Image.Image],
+    show_write_in: bool = True,
 ) -> Image.Image:
     """Render one legally-compliant raffle ticket as a WIDE full-width strip:
 
@@ -257,13 +258,14 @@ def render_ticket(
     draw.text(((_STUB_W - sw0) / 2, 10), serial, font=f_serial, fill="black")
     sq = 78
     img.paste(qr_full.resize((sq, sq)), ((_STUB_W - sq) // 2, 32))
-    wy = 32 + sq + 12
-    for label in ("Name:", "Address:", "Phone:"):
-        draw.text((14, wy), label, font=f_stub, fill="black")
-        lx = 14 + draw.textlength(label + " ", font=f_stub)
-        rule_y = wy + f_stub.size
-        draw.line([lx, rule_y, _STUB_W - 12, rule_y], fill="black", width=1)
-        wy += f_stub.size + 16
+    if show_write_in:
+        wy = 32 + sq + 12
+        for label in ("Name:", "Address:", "Phone:"):
+            draw.text((14, wy), label, font=f_stub, fill="black")
+            lx = 14 + draw.textlength(label + " ", font=f_stub)
+            rule_y = wy + f_stub.size
+            draw.line([lx, rule_y, _STUB_W - 12, rule_y], fill="black", width=1)
+            wy += f_stub.size + 16
 
     # --- right serial strip (vertical) ---
     v = _vertical_text(serial, f_serial)
@@ -368,7 +370,7 @@ def single_ticket_pdf(number: int, token: str, info: TicketSheetInfo) -> bytes:
     """One full ticket as a single-page PDF (emailed to the buyer)."""
     logos = _decode_logos(info.logos, target_h=40)
     buf = io.BytesIO()
-    render_ticket(number, token, info, logos).save(
+    render_ticket(number, token, info, logos, show_write_in=False).save(
         buf, format="PDF", resolution=150.0
     )
     return buf.getvalue()
