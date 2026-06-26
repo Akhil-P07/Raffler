@@ -368,6 +368,8 @@ class EntryResponse(BaseModel):
     phone: str | None = None
     ticket_number: int
     registered_at: datetime
+    # Email of the org member who registered this buyer (abuse tracing).
+    registered_by_email: str | None = None
 
 
 class DeregisterRequest(BaseModel):

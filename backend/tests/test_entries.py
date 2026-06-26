@@ -44,6 +44,20 @@ class TestListEntries:
             assert "ticket_number" in entry
             assert "registered_at" in entry
 
+    def test_entry_records_who_registered_it(
+        self, client, app_and_db, free_org
+    ):
+        # The seller's email is recorded on each entry for abuse tracing.
+        raffle_id = create_raffle(client, free_org["headers"])
+        generate_tickets(client, free_org["headers"], raffle_id, count=1)
+        _register_all(client, app_and_db, free_org, raffle_id, 1)
+
+        resp = client.get(
+            f"/raffles/{raffle_id}/entries", headers=free_org["headers"]
+        )
+        assert resp.status_code == 200
+        assert resp.json()[0]["registered_by_email"] == free_org["email"]
+
     def test_list_entries_empty_before_registration(
         self, client, free_org
     ):

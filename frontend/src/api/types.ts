@@ -105,6 +105,8 @@ export interface Entry {
   phone: string | null;
   ticket_number: number;
   registered_at: string;
+  // Email of the org member who registered this buyer (abuse tracing).
+  registered_by_email: string | null;
 }
 
 export interface Winner {

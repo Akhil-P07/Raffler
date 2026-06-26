@@ -34,7 +34,8 @@ export default function EntryTable({
       (e) =>
         e.name.toLowerCase().includes(q) ||
         e.email.toLowerCase().includes(q) ||
-        (e.phone ?? "").toLowerCase().includes(q)
+        (e.phone ?? "").toLowerCase().includes(q) ||
+        (e.registered_by_email ?? "").toLowerCase().includes(q)
     );
   }, [entries, query]);
 
@@ -136,8 +137,8 @@ export default function EntryTable({
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search by name, email, or phone…"
-          aria-label="Search entries by name, email, or phone"
+          placeholder="Search by name, email, phone, or who registered…"
+          aria-label="Search entries by name, email, phone, or who registered them"
           className="w-full max-w-sm rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
         />
       </div>
@@ -205,6 +206,7 @@ export default function EntryTable({
                   <span aria-hidden="true">{arrow("registered_at")}</span>
                 </button>
               </th>
+              <th className="px-3 py-2 font-semibold">Registered by</th>
               {selectable && (
                 <th className="px-3 py-2 font-semibold">Actions</th>
               )}
@@ -234,6 +236,9 @@ export default function EntryTable({
                 <td className="px-3 py-2 text-gray-600">{e.phone ?? "—"}</td>
                 <td className="px-3 py-2 text-gray-500">
                   {new Date(e.registered_at).toLocaleString()}
+                </td>
+                <td className="px-3 py-2 text-gray-500">
+                  {e.registered_by_email ?? "—"}
                 </td>
                 {selectable && (
                   <td className="px-3 py-2">

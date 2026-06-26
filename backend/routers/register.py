@@ -9,6 +9,7 @@ On a successful registration the buyer is emailed a PDF of their ticket (if
 Brevo is configured). A re-scan of a registered ticket shows who it belongs to.
 """
 import re
+from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy import select
@@ -17,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from config import settings
 from database import Entry, Organization, Raffle, RaffleLogo, Ticket, get_db
-from middleware.ownership import require_org
+from middleware.ownership import get_session, require_org
 from schemas import RegisterConfirmation, RegisterInfoResponse, RegisterRequest
 from services.email import send_ticket_email
 from services.qr import TicketSheetInfo, single_ticket_pdf
@@ -115,6 +116,7 @@ def register(
     token: str,
     body: RegisterRequest,
     background: BackgroundTasks,
+    claims: dict[str, Any] = Depends(get_session),
     org: Organization = Depends(require_org),
     db: Session = Depends(get_db),
 ) -> RegisterConfirmation:
@@ -142,6 +144,7 @@ def register(
         name=body.name,
         email=str(body.email),
         phone=body.phone,
+        registered_by_email=claims.get("email"),
     )
     ticket.registered = True
     db.add(entry)

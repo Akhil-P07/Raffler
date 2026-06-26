@@ -296,6 +296,10 @@ class Entry(Base):
     registered_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+    # Email of the org member (seller) who registered this buyer — recorded so
+    # abuse can be traced to a specific account. Nullable so entries predating
+    # the column are fine.
+    registered_by_email: Mapped[str | None] = mapped_column(String, nullable=True)
 
     ticket: Mapped["Ticket"] = relationship(back_populates="entry")
     raffle: Mapped["Raffle"] = relationship(back_populates="entries")
@@ -360,9 +364,13 @@ def _add_missing_columns() -> None:
     tables = inspector.get_table_names()
     if "entries" in tables:
         existing = {col["name"] for col in inspector.get_columns("entries")}
-        if "phone" not in existing:
-            with engine.begin() as conn:
+        with engine.begin() as conn:
+            if "phone" not in existing:
                 conn.execute(text("ALTER TABLE entries ADD COLUMN phone VARCHAR"))
+            if "registered_by_email" not in existing:
+                conn.execute(
+                    text("ALTER TABLE entries ADD COLUMN registered_by_email VARCHAR")
+                )
     if "raffles" in tables:
         existing = {col["name"] for col in inspector.get_columns("raffles")}
         with engine.begin() as conn:
