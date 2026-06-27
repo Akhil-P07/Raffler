@@ -83,7 +83,7 @@ or delete your personal data, and to object to or restrict processing.
 - Organizers can **export** entries to CSV and **deregister/remove** entries from
   the dashboard.
 - To exercise any right, or to ask us to delete your data, contact
-  **akhil.palepally1@gmail.com**. We will respond within **30 days**.
+  **ritai@g.rit.edu**. We will respond within **30 days**.
 
 ## Children
 
@@ -97,4 +97,4 @@ new "Last updated" date.
 
 ## Contact
 
-**RIT AI Club** — **akhil.palepally1@gmail.com**.
+**RIT AI Club** — **ritai@g.rit.edu**.
