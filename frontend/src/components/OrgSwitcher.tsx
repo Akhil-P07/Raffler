@@ -76,7 +76,7 @@ export default function OrgSwitcher({
       {open && (
         <div
           role="listbox"
-          className="absolute right-0 z-50 mt-1 w-60 max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-lg"
+          className="absolute left-0 z-50 mt-1 w-60 max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-lg"
         >
           {orgs.map((o) => {
             const active = o.id === currentId;
