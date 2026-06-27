@@ -38,9 +38,7 @@ export default function PlanUsageCard({ usage }: Props) {
             Raffles created (lifetime)
           </span>
           <span className="text-gray-500">
-            {rLimit === null
-              ? `${rUsed} · Unlimited`
-              : `${rUsed} / ${rLimit}`}
+            {rLimit === null ? "Unlimited" : `${rUsed} / ${rLimit}`}
           </span>
         </div>
         {rLimit === null ? (
