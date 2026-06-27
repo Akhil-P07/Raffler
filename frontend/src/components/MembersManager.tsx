@@ -62,7 +62,7 @@ export default function MembersManager() {
     <div className="rounded-xl bg-white p-6 shadow">
       <h2 className="font-semibold text-gray-900">Team members</h2>
       <p className="mb-3 text-sm text-gray-500">
-        Invite people by email — they get a link to set a password and join.
+        Invite people by email. They get a link to set a password and join.
         Members can register tickets at the point of sale but can't see or print
         QR codes.
       </p>

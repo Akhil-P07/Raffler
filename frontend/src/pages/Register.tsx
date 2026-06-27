@@ -150,7 +150,7 @@ export default function Register() {
             </p>
             <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3 text-left">
               <p className="font-semibold text-gray-900">
-                {state.info.registrant_name ?? "—"}
+                {state.info.registrant_name ?? "-"}
               </p>
               <p className="text-sm text-gray-600">
                 {state.info.registrant_email ?? ""}
@@ -170,7 +170,7 @@ export default function Register() {
               {state.info.raffle_name}
             </h1>
             <p className="mb-4 mt-1 text-center text-sm text-gray-500">
-              Registering ticket #{state.info.ticket_number} — enter the buyer's
+              Registering ticket #{state.info.ticket_number}. Enter the buyer's
               details.
             </p>
             <form onSubmit={onSubmit} className="space-y-3" noValidate>

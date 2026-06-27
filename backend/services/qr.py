@@ -576,7 +576,7 @@ def render_ticket_card(
             y += f_body.size + 6
         y += 16
 
-    block("Enter to win:", _wrap(draw, info.prizes or "—", f_body, cw))
+    block("Enter to win:", _wrap(draw, info.prizes or "To be announced", f_body, cw))
 
     when = (
         f"{_format_date(info.drawing_datetime)} · {_format_time(info.drawing_datetime)}"

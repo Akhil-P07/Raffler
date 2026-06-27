@@ -15,6 +15,7 @@ import EntriesPage from "./pages/EntriesPage";
 import ForgotPassword from "./pages/ForgotPassword";
 import GenerateTickets from "./pages/GenerateTickets";
 import Login from "./pages/Login";
+import OrgSwitcher from "./components/OrgSwitcher";
 import ResetPassword from "./pages/ResetPassword";
 import OrgSettings from "./pages/OrgSettings";
 import Register from "./pages/Register";
@@ -76,19 +77,12 @@ function AdminShell({ children }: { children: React.ReactNode }) {
             </Link>
             <div className="flex items-center gap-3 text-sm">
               {me && me.orgs.length > 1 ? (
-                <select
-                  aria-label="Switch organization"
-                  value={me.org.id}
+                <OrgSwitcher
+                  orgs={me.orgs}
+                  currentId={me.org.id}
                   disabled={switching}
-                  onChange={(e) => onSwitchOrg(e.target.value)}
-                  className="rounded-lg border border-gray-300 px-2 py-1 text-sm focus:border-brand focus:outline-none"
-                >
-                  {me.orgs.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.name} ({o.role})
-                    </option>
-                  ))}
-                </select>
+                  onSwitch={onSwitchOrg}
+                />
               ) : (
                 me && <span className="font-medium text-gray-700">{me.org.name}</span>
               )}

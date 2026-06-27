@@ -14,7 +14,6 @@ export default function OrgSettings() {
   const owner = isOwner(me);
   const [name, setName] = useState("");
   const [gocId, setGocId] = useState("");
-  const [plan, setPlan] = useState("");
   const [usage, setUsage] = useState<PlanUsage | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -26,7 +25,6 @@ export default function OrgSettings() {
       .then((m) => {
         setName(m.org.name);
         setGocId(m.org.goc_id ?? "");
-        setPlan(m.org.plan);
         setLoaded(true);
       })
       .catch((err) => setError(errorMessage(err)));
@@ -66,8 +64,7 @@ export default function OrgSettings() {
       </button>
       <h1 className="mb-1 text-2xl font-bold text-gray-900">Organization settings</h1>
       <p className="mb-4 text-sm text-gray-500">
-        Plan: <span className="font-medium capitalize">{plan || "…"}</span>. The
-        name and Games-of-Chance ID are printed on your tickets.
+        The name and Games-of-Chance ID are printed on your tickets.
         {!owner && " Only owners can edit these."}
       </p>
 

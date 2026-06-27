@@ -56,7 +56,7 @@ def enforce_raffle_limit(db: Session, org_id: str, plan: str) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail=(
                 f"Plan limit reached: the {plan} plan allows {limit} raffles "
-                "total (lifetime — deleted and drawn raffles still count). "
+                "total (lifetime, so deleted and drawn raffles still count). "
                 "Upgrade to the Club plan for unlimited raffles."
             ),
         )

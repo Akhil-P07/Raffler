@@ -176,8 +176,8 @@ def send_password_reset_email(to_email: str, reset_url: str) -> None:
       <tr>
         <td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:16px 32px;text-align:center">
           <p style="margin:0;color:#9ca3af;font-size:11px;line-height:1.6">
-            If you didn't request a password reset you can safely ignore this email —
-            your password won't change. This message was sent to {to_email}.
+            If you didn't request a password reset you can safely ignore this email.
+            Your password won't change. This message was sent to {to_email}.
           </p>
         </td>
       </tr>
@@ -253,8 +253,8 @@ def send_ticket_email(
             Hi <strong>{buyer_name}</strong>,
           </p>
           <p style="margin:0 0 24px;color:#374151;font-size:15px;line-height:1.7">
-            You're all set — your ticket for <strong>{raffle_name}</strong> has been registered.
-            Your ticket PDF is attached; keep it safe, you'll need it for the drawing.
+            You're all set! Your ticket for <strong>{raffle_name}</strong> has been registered.
+            Your ticket PDF is attached. Keep it safe, you'll need it for the drawing.
           </p>
 
           <!-- Ticket number highlight -->
@@ -313,7 +313,7 @@ def send_ticket_email(
     _send(
         {
             "to": [{"email": to_email, "name": buyer_name}],
-            "subject": f"Your raffle ticket {serial} — {raffle_name}",
+            "subject": f"Your raffle ticket {serial} for {raffle_name}",
             "htmlContent": html,
             "textContent": text,
             "attachment": [

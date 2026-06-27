@@ -90,7 +90,7 @@ export default function GenerateTickets() {
         ← Back to dashboard
       </button>
       <h1 className="text-2xl font-bold text-gray-900">
-        Tickets — {raffleName}
+        Tickets: {raffleName}
         {eventCode && (
           <span className="ml-2 align-middle text-base font-medium text-gray-400">
             ({eventCode})
@@ -99,7 +99,7 @@ export default function GenerateTickets() {
       </h1>
       <p className="mb-6 text-sm text-gray-500">
         Each ticket shows its serial (#{eventCode ?? "CODE"}-1, …) and a QR the
-        organizer scans to register a buyer. QR codes load on demand — click
+        organizer scans to register a buyer. QR codes load on demand. Click
         “Show QR” on a ticket (click it again to hide), or “Show all QR codes”.
         Download the A4 PDF to print in bulk.
       </p>

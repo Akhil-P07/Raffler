@@ -233,12 +233,12 @@ export default function EntryTable({
                 </td>
                 <td className="px-3 py-2">{e.name}</td>
                 <td className="px-3 py-2 text-gray-600">{e.email}</td>
-                <td className="px-3 py-2 text-gray-600">{e.phone ?? "—"}</td>
+                <td className="px-3 py-2 text-gray-600">{e.phone ?? "-"}</td>
                 <td className="px-3 py-2 text-gray-500">
                   {new Date(e.registered_at).toLocaleString()}
                 </td>
                 <td className="px-3 py-2 text-gray-500">
-                  {e.registered_by_email ?? "—"}
+                  {e.registered_by_email ?? "-"}
                 </td>
                 {selectable && (
                   <td className="px-3 py-2">
