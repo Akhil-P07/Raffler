@@ -255,11 +255,12 @@ Payment processing and price/sale tracking. Cash is always handled offline.
 ## Privacy
 
 Raffler stores personal data (buyer name / email / phone, and account-holder
-emails). If you deploy it, you are the data controller for your instance — read
-and adapt [`PRIVACY.md`](PRIVACY.md) (fill in your organization name and contact)
-and publish it to your users. Buyer details are collected by the logged-in
-seller, never logged in plaintext app logs, and can be exported or deleted via
-the dashboard.
+emails). If you deploy it, you are the data controller for your instance — start
+from the [`PRIVACY_Template.md`](PRIVACY_Template.md) template (fill in your
+organization name and contact) and publish it to your users. The live policy for
+the official deployment is in [`PRIVACY.md`](PRIVACY.md) as a worked example.
+Buyer details are collected by the logged-in seller, never logged in plaintext
+app logs, and can be exported or deleted via the dashboard.
 
 ## Contributing
 

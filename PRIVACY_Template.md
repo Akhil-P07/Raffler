@@ -1,23 +1,26 @@
-# Privacy Policy — RIT AI Club Raffles
+# Privacy Policy (TEMPLATE — do not use as-is)
 
-_Last updated: 2026-06-27_
+_Last updated: 2026-06-26_
 
-This policy explains how **RIT AI Club** ("we", "us") collects and uses personal
-information in our Raffler instance at **https://raffler.up.railway.app**.
+> **This file is a TEMPLATE, not a live policy.** Raffler is open-source
+> software, and this is a starting-point privacy policy for an organization that
+> **deploys** Raffler to run its own raffles. Replace every `[bracketed]` value,
+> review it against the laws that apply to you (e.g. GDPR, US state privacy laws,
+> your local games-of-chance / raffle rules), and publish your filled-in version
+> to your users. **It is not legal advice.** (For reference, the live policy for
+> the official deployment is in [`PRIVACY.md`](PRIVACY.md).)
 
-For this deployment, the data controller is **RIT AI Club**, contactable at
-**akhil.palepally1@gmail.com**.
+This policy explains how **[Organization Name]** ("we", "us") collects and uses
+personal information in our Raffler instance at **[https://your-domain]**.
 
-> Forking the open-source Raffler project? Do not reuse this file — start from
-> the [`PRIVACY.md`](PRIVACY.md) template and fill in your own organization's
-> details. This document is the live policy for the raffler.up.railway.app
-> deployment only, and it is not legal advice.
+For this deployment, the data controller is **[Organization Name]**, contactable
+at **[privacy@your-domain]**.
 
 ## Who this covers
 
 - **Raffle entrants ("buyers")** — people who buy a ticket and are registered.
 - **Account holders ("sellers / organizers")** — people who log in to run
-  raffles for RIT AI Club.
+  raffles for an organization.
 
 ## What we collect and why
 
@@ -31,7 +34,7 @@ For this deployment, the data controller is **RIT AI Club**, contactable at
 \* _Adjust the basis to your jurisdiction._
 
 **We never collect or process payment data.** All ticket sales and cash are
-handled offline by RIT AI Club; no card or bank details touch this system.
+handled offline by the organization; no card or bank details touch this system.
 
 Buyer details are entered by the **logged-in seller** at the point of sale —
 buyers do not self-register. Personal data is **not written to plaintext
@@ -40,7 +43,7 @@ application logs**.
 ## How it is stored and protected
 
 - Data is stored in a SQLite database file on a private server volume hosted by
-  **Railway**.
+  **[hosting provider, e.g. Railway]**.
 - Passwords are hashed with bcrypt; we never store them in plaintext.
 - Access requires an authenticated session; each organization can only see its
   own raffles and entries. Traffic is served over HTTPS, and sensitive actions
@@ -54,7 +57,7 @@ application logs**.
 
 ## Sub-processors (third parties)
 
-- **Railway** — hosts the application and stores the database at rest.
+- **[Hosting provider, e.g. Railway]** — stores the database at rest.
 - **Brevo** — sends transactional email (a buyer's ticket PDF and organization
   invitations). The recipient's name, email, and ticket are shared to deliver
   the message. _Only if email is enabled by the operator._
@@ -64,16 +67,16 @@ application logs**.
 ## Email you may receive
 
 - **Buyers:** a PDF copy of your ticket when your ticket is registered.
-- **Account holders:** organization invitations and password-reset links.
+- **Account holders:** organization invitations.
 
 These are transactional (not marketing) messages tied to using the service.
 
 ## Data retention
 
 We keep entry data only as long as needed to run and audit the raffle and to
-meet any record-keeping required by raffle regulations. We delete entry data
-within **90 days after the drawing**, unless a longer period is required by
-applicable rules.
+meet any record-keeping required by raffle regulations, then delete it.
+**[State your retention period, e.g. "we delete entry data within 90 days after
+the drawing."]**
 
 ## Your rights
 
@@ -83,7 +86,7 @@ or delete your personal data, and to object to or restrict processing.
 - Organizers can **export** entries to CSV and **deregister/remove** entries from
   the dashboard.
 - To exercise any right, or to ask us to delete your data, contact
-  **akhil.palepally1@gmail.com**. We will respond within **30 days**.
+  **[privacy@your-domain]**. We will respond within **[e.g. 30 days]**.
 
 ## Children
 
@@ -97,4 +100,5 @@ new "Last updated" date.
 
 ## Contact
 
-**RIT AI Club** — **akhil.palepally1@gmail.com**.
+**[Organization Name]** — **[privacy@your-domain]** — **[postal address, if
+required by your jurisdiction]**.
