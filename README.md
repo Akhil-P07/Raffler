@@ -7,6 +7,7 @@ payments are handled offline by the club.
 
 - **Backend:** FastAPI · SQLAlchemy 2.0 · SQLite (a file on a persistent
   volume) · `qrcode`/Pillow · `python-jose` (JWT) · `passlib`/bcrypt · `slowapi`
+  · Brevo (optional transactional email)
 - **Frontend:** React · TypeScript · Vite · Axios · TailwindCSS
 - **Hosting:** Railway (backend + frontend services; SQLite on a mounted volume)
 
@@ -19,9 +20,10 @@ BEFORE   Admin generates N tickets → downloads print sheet → prints tickets.
          Each ticket shows a human number AND an unguessable QR token.
 AT EVENT Seller takes cash offline → hands over ticket → seller scans the QR
          in their logged-in portal → enters the buyer's name + email. The
-         server confirms the ticket belongs to the seller's org first.
+         server confirms the ticket belongs to the seller's org, then emails
+         the buyer a PDF of their ticket.
 AFTER    Admin opens dashboard → Draw → winner selected with `secrets`,
-         recorded immutably, shown with email to contact offline.
+         recorded immutably, contacted via the email on file.
 ```
 
 ## Quick start (local, zero setup)
@@ -73,10 +75,18 @@ buyers never self-register; the logged-in seller registers each ticket.
 |--------|------|-------|
 | POST | `/auth/register` | Self-signup (email + password). Returns a session token. Free tier (or club if allowlisted). 10/min. |
 | POST | `/auth/login` | Email + password → session token. 10/min. |
+| POST | `/auth/forgot-password` | Email a password-reset link. Always `200` (no account enumeration). 10/min. |
+| POST | `/auth/reset-password` | Set a new password from a reset token (single-use). 10/min. |
 | GET | `/auth/google/login` | Returns the Google consent URL (`503` if Google isn't configured). |
 | GET | `/auth/google/callback` | Google redirect target → redirects to the SPA with a session token. |
 | GET | `/me` | Current account + org (plan, name, goc_id). |
+| POST | `/auth/select-org` | Switch the session to another org you belong to. |
 | PATCH | `/org` | Update your org name / Games-of-Chance ID. |
+| GET | `/org/usage` | Plan usage vs. limits (lifetime raffles used, per-raffle ticket cap). |
+| GET/POST | `/org/members` | List members + pending invites / invite an email (owner; invite is emailed). |
+| DELETE | `/org/members/{email}` | Remove a member or pending invite (owner). |
+| GET | `/invites/{token}` | Invite details (org name, whether a new password is needed). |
+| POST | `/invites/{token}/accept` | Accept an invite (sets a password for a new account). 10/min. |
 | POST | `/auth/admin/login` | Super-admin login (manages the premium allowlist). |
 | GET/POST | `/admin/premium` | List / add premium-allowlist emails (admin). |
 | DELETE | `/admin/premium/{email}` | Remove an allowlisted email (admin). |
@@ -89,16 +99,18 @@ buyers never self-register; the logged-in seller registers each ticket.
 | GET | `/raffles/{id}/tickets` | List tickets. |
 | GET | `/raffles/{id}/tickets/sheet` | PDF print sheet — 6 full-width tickets per A4 page (compliant ticket faces). |
 | GET | `/tickets/{ticket_id}/qr` | Single-ticket QR PNG (ownership-checked). |
+| GET | `/tickets/{ticket_id}/preview` | On-screen ticket preview PNG (ownership-checked). |
 | POST | `/raffles/{id}/logos` | Upload a logo (multipart `file`, optional `name`). Max 6, ≤2 MB. |
 | GET | `/raffles/{id}/logos` | List logo metadata (`id`, `name`, `position`). |
 | GET | `/raffles/{id}/logos/{logo_id}` | Logo as `image/png`. |
 | DELETE | `/raffles/{id}/logos/{logo_id}` | Remove a logo. |
 | GET | `/register/{token}` | Seller scans a ticket: returns `owned` + (if owned) number/raffle/registered + registrant name/email/phone. |
 | POST | `/register/{token}` | Seller registers the buyer (name + email + phone with country code). 403 if the ticket isn't the seller's org. |
-| GET | `/raffles/{id}/entries` | List entries. |
-| GET | `/raffles/{id}/entries/export` | CSV download. |
+| GET | `/raffles/{id}/entries` | List entries (includes who registered each buyer). |
+| GET | `/raffles/{id}/entries/export` | CSV download (includes a `registered_by` column). |
+| POST | `/raffles/{id}/entries/deregister` | Owner-only: free selected tickets to register again (blocked after the draw). |
 | POST | `/raffles/{id}/draw` | Draw winner(s). Idempotent. 5/min. |
-| GET | `/raffles/{id}/winners` | Recorded winners. |
+| GET | `/raffles/{id}/winners` | Recorded winners (the dashboard reveals each winner's email on click). |
 
 Interactive docs at `/docs` when the backend is running.
 
@@ -116,10 +128,18 @@ unguessable registration token) is printed on both the body and the stub, so the
 seller can scan it at point of sale to register the buyer.
 
 These come from optional, **print-only** raffle fields (no payment/sale
-tracking): `ticket_price`, `prizes`, `drawing_datetime`, `drawing_location` on
-the raffle, and `goc_id` on the org. A raffle may carry up to 6 **logos** (it can
-be co-hosted by several organizations); SVGs are rasterized to PNG by the web
-uploader before upload.
+tracking): `ticket_price`, `prizes`, `drawing_datetime`, `drawing_location`, and
+`ticket_notes` (short terms / special info, ≤150 chars) on the raffle, and
+`goc_id` on the org. A raffle may carry up to 6 **logos** (it can be co-hosted by
+several organizations); SVGs are rasterized to PNG by the web uploader before
+upload, with transparency preserved.
+
+When a ticket is registered, the buyer is emailed a PDF of their ticket as a
+portrait **10:11 card** (org logo, raffle details, and the registration QR) via
+Brevo, if configured. The card is the buyer's keepsake, so it omits the seller's
+tear-off stub and write-in lines. Org invites and password resets are emailed
+the same way; with no Brevo key set, email is silently skipped and everything
+else still works.
 
 ---
 
@@ -145,12 +165,13 @@ uploader before upload.
 
 | Plan | Raffles (lifetime) | Tickets per raffle |
 |------|--------------------|--------------------|
-| Free | 5 | 50 |
+| Free | 5 | 20 |
 | Club | unlimited | unlimited |
 
 The free raffle cap is a **lifetime** total — every raffle ever created counts,
 including soft-deleted and already-drawn ones, so deleting one never frees a
-slot. Over-limit → 403.
+slot. Over-limit → 403. Organization settings shows a live **usage tracker**
+(raffles used vs. limit, ticket cap), backed by `GET /org/usage`.
 
 ## Authentication & access control
 
@@ -164,7 +185,12 @@ slot. Over-limit → 403.
 - **Google OAuth** is optional (config-gated): the backend builds the consent
   URL with a signed CSRF state, exchanges the code server-side, and redirects
   the SPA back with a session token. If unconfigured, `/auth/google/*` returns
-  `503` and email/password still works.
+  `503` and email/password still works. The flow works even when the frontend
+  and backend are on separate domains.
+- **Self-service password reset:** `POST /auth/forgot-password` emails a
+  short-lived, single-use reset link, and always returns the same response so
+  accounts can't be enumerated; `POST /auth/reset-password` sets the new
+  password. Requires email (Brevo) to be configured.
 - Passwords are **bcrypt-hashed**; the super-admin uses constant-time
   credential comparison.
 
@@ -185,7 +211,10 @@ slot. Over-limit → 403.
 
 See [`backend/.env.example`](backend/.env.example) and
 [`frontend/.env.example`](frontend/.env.example). The backend **refuses to
-start** if `SECRET_KEY` is shorter than 32 bytes.
+start** if `SECRET_KEY` is shorter than 32 bytes (or is the built-in dev
+default), or if `ADMIN_PASSWORD` is left at a default/example value on a real
+HTTPS origin. Email is via **Brevo** (`BREVO_API_KEY`, `BREVO_SENDER_EMAIL`);
+leave the key blank to disable all email.
 
 ## Deploy (Railway)
 
