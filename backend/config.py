@@ -6,13 +6,18 @@ production.
 """
 from functools import lru_cache
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # The placeholder dev key. The app refuses to start while SECRET_KEY equals it,
 # so a known signing key can never reach a real deployment. Set a real
 # SECRET_KEY (env or backend/.env) even for local dev.
 _INSECURE_DEFAULT_SECRET = "dev-only-insecure-key-change-me-in-production-32b"
+
+# Known weak/example admin passwords. Allowed for local dev (http), but the app
+# refuses to start with one on a real HTTPS origin so a public fork can't ship a
+# guessable super-admin login by accident.
+_DEFAULT_ADMIN_PASSWORDS = {"", "changeme", "use-a-long-random-password"}
 
 
 class Settings(BaseSettings):
@@ -93,6 +98,21 @@ class Settings(BaseSettings):
                 "(see the command above) before starting the app."
             )
         return v
+
+    @model_validator(mode="after")
+    def admin_password_safe_in_prod(self) -> "Settings":
+        # A default admin password is fine on local http, but on a real HTTPS
+        # deployment it's a public, guessable super-admin login (the endpoint is
+        # visible once the code is open source). Hard-fail like SECRET_KEY does.
+        if (
+            self.API_ORIGIN.startswith("https")
+            and self.ADMIN_PASSWORD in _DEFAULT_ADMIN_PASSWORDS
+        ):
+            raise ValueError(
+                "ADMIN_PASSWORD is a default/example value. Set a strong "
+                "ADMIN_PASSWORD env var before deploying to a public HTTPS origin."
+            )
+        return self
 
 
 @lru_cache
