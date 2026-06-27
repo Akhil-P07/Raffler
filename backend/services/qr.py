@@ -230,51 +230,6 @@ def _decode_logos(
     return out
 
 
-def _strip_white_background(img: Image.Image, tol: int = 30) -> Image.Image:
-    """Make a border-connected OPAQUE near-white background transparent, so a
-    logo saved with a white box (e.g. an SVG rasterized onto white before
-    upload) blends into a coloured surface like the emailed card's header.
-
-    Only opaque white is flooded: a logo that's genuinely white on a transparent
-    background has transparent border pixels, so the fill never starts and it's
-    left intact. Interior pixels enclosed by non-white content are untouched."""
-    from collections import deque
-
-    img = img.convert("RGBA")
-    w, h = img.size
-    if w == 0 or h == 0:
-        return img
-    px = img.load()
-    thresh = 255 - tol
-
-    def is_white(x: int, y: int) -> bool:
-        r, g, b, a = px[x, y]
-        return a != 0 and r >= thresh and g >= thresh and b >= thresh
-
-    visited = bytearray(w * h)
-    dq: deque[tuple[int, int]] = deque()
-    for x in range(w):
-        dq.append((x, 0))
-        dq.append((x, h - 1))
-    for y in range(h):
-        dq.append((0, y))
-        dq.append((w - 1, y))
-
-    while dq:
-        x, y = dq.popleft()
-        if x < 0 or y < 0 or x >= w or y >= h:
-            continue
-        idx = y * w + x
-        if visited[idx]:
-            continue
-        visited[idx] = 1
-        if not is_white(x, y):
-            continue
-        px[x, y] = (255, 255, 255, 0)
-        dq.extend(((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)))
-    return img
-
-
 def render_ticket(
     number: int, token: str, info: TicketSheetInfo, logos: list[Image.Image],
     show_write_in: bool = True,
@@ -611,10 +566,7 @@ def single_ticket_pdf(number: int, token: str, info: TicketSheetInfo) -> bytes:
     """The buyer's emailed ticket as a single-page PDF: a portrait 10:11 card
     (logo + raffle details + registration QR), not the wide seller strip used
     for printing."""
-    logos = [
-        _strip_white_background(im)
-        for im in _decode_logos(info.logos, target_h=48, flatten=False)
-    ]
+    logos = _decode_logos(info.logos, target_h=48, flatten=False)
     buf = io.BytesIO()
     render_ticket_card(number, token, info, logos).save(
         buf, format="PDF", resolution=150.0

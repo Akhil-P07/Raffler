@@ -46,7 +46,7 @@ export default function OrgSwitcher({
         aria-expanded={open}
         aria-label="Switch organization"
         onClick={() => setOpen((v) => !v)}
-        className="flex max-w-[14rem] items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-800 transition hover:border-gray-400 hover:bg-gray-50 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand disabled:opacity-60"
+        className="flex max-w-[9rem] items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-800 transition hover:border-gray-400 hover:bg-gray-50 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand disabled:opacity-60 sm:max-w-[14rem]"
       >
         <svg
           aria-hidden="true"
@@ -76,7 +76,7 @@ export default function OrgSwitcher({
       {open && (
         <div
           role="listbox"
-          className="absolute right-0 z-50 mt-1 w-60 overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-lg"
+          className="absolute right-0 z-50 mt-1 w-60 max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-lg"
         >
           {orgs.map((o) => {
             const active = o.id === currentId;

@@ -75,7 +75,7 @@ function AdminShell({ children }: { children: React.ReactNode }) {
             <Link to="/" className="text-lg font-bold text-brand">
               Raffler
             </Link>
-            <div className="flex items-center gap-3 text-sm">
+            <div className="flex min-w-0 flex-wrap items-center justify-end gap-x-3 gap-y-2 text-sm">
               {me && me.orgs.length > 1 ? (
                 <OrgSwitcher
                   orgs={me.orgs}
@@ -84,7 +84,11 @@ function AdminShell({ children }: { children: React.ReactNode }) {
                   onSwitch={onSwitchOrg}
                 />
               ) : (
-                me && <span className="font-medium text-gray-700">{me.org.name}</span>
+                me && (
+                  <span className="max-w-[45vw] truncate font-medium text-gray-700">
+                    {me.org.name}
+                  </span>
+                )
               )}
               {me && (
                 <span
