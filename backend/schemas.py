@@ -66,6 +66,16 @@ class OrgSummary(BaseModel):
     goc_id: str | None
 
 
+class PlanUsageResponse(BaseModel):
+    """Current plan usage vs. limits, for the settings usage tracker. A null
+    limit means unlimited (the Club plan)."""
+
+    plan: str
+    lifetime_raffles_used: int
+    lifetime_raffles_limit: int | None
+    tickets_per_raffle_limit: int | None
+
+
 class OrgMembershipSummary(BaseModel):
     """An org the user belongs to, with their role in it (for the switcher)."""
 

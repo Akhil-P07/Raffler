@@ -65,32 +65,32 @@ class TestFreeRaffleLimit:
 
 
 class TestFreeTicketLimit:
-    def test_free_org_can_generate_50_tickets(self, client, free_org):
+    def test_free_org_can_generate_20_tickets(self, client, free_org):
         raffle_id = create_raffle(client, free_org["headers"])
         resp = client.post(
             f"/raffles/{raffle_id}/tickets",
-            json={"count": 50},
+            json={"count": 20},
             headers=free_org["headers"],
         )
         assert resp.status_code == 201
-        assert resp.json()["created"] == 50
+        assert resp.json()["created"] == 20
 
-    def test_free_org_blocked_at_51st_ticket(self, client, free_org):
-        """Exactly 51 tickets must fail on a free plan."""
+    def test_free_org_blocked_at_21st_ticket(self, client, free_org):
+        """Exactly 21 tickets must fail on a free plan."""
         raffle_id = create_raffle(client, free_org["headers"])
         resp = client.post(
             f"/raffles/{raffle_id}/tickets",
-            json={"count": 51},
+            json={"count": 21},
             headers=free_org["headers"],
         )
         assert resp.status_code == 403
 
-    def test_free_org_blocked_adding_tickets_beyond_50(self, client, free_org):
-        """50 + 1 must also fail."""
+    def test_free_org_blocked_adding_tickets_beyond_20(self, client, free_org):
+        """20 + 1 must also fail."""
         raffle_id = create_raffle(client, free_org["headers"])
         client.post(
             f"/raffles/{raffle_id}/tickets",
-            json={"count": 50},
+            json={"count": 20},
             headers=free_org["headers"],
         )
         resp = client.post(
@@ -100,19 +100,40 @@ class TestFreeTicketLimit:
         )
         assert resp.status_code == 403
 
-    def test_free_org_can_add_tickets_if_still_under_50(self, client, free_org):
+    def test_free_org_can_add_tickets_if_still_under_20(self, client, free_org):
         raffle_id = create_raffle(client, free_org["headers"])
         client.post(
             f"/raffles/{raffle_id}/tickets",
-            json={"count": 25},
+            json={"count": 10},
             headers=free_org["headers"],
         )
         resp = client.post(
             f"/raffles/{raffle_id}/tickets",
-            json={"count": 25},
+            json={"count": 10},
             headers=free_org["headers"],
         )
         assert resp.status_code == 201
+
+
+class TestPlanUsage:
+    def test_free_org_usage_reflects_limits_and_count(self, client, free_org):
+        create_raffle(client, free_org["headers"])
+        create_raffle(client, free_org["headers"])
+        resp = client.get("/org/usage", headers=free_org["headers"])
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["plan"] == "free"
+        assert body["lifetime_raffles_used"] == 2
+        assert body["lifetime_raffles_limit"] == 5
+        assert body["tickets_per_raffle_limit"] == 20
+
+    def test_club_org_usage_is_unlimited(self, client, club_org):
+        resp = client.get("/org/usage", headers=club_org["headers"])
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["plan"] == "club"
+        assert body["lifetime_raffles_limit"] is None
+        assert body["tickets_per_raffle_limit"] is None
 
 
 class TestClubPlanUnlimited:

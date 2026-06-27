@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { errorMessage, getMe, updateOrg } from "../api/client";
+import { errorMessage, getMe, getOrgUsage, updateOrg } from "../api/client";
 import { isOwner, useMe } from "../auth/MeContext";
 import MembersManager from "../components/MembersManager";
+import PlanUsageCard from "../components/PlanUsageCard";
+import type { PlanUsage } from "../api/types";
 
 /** Edit the organization name + Games-of-Chance ID printed on tickets, and
  * (owners only) manage team members. */
@@ -13,6 +15,7 @@ export default function OrgSettings() {
   const [name, setName] = useState("");
   const [gocId, setGocId] = useState("");
   const [plan, setPlan] = useState("");
+  const [usage, setUsage] = useState<PlanUsage | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -27,6 +30,9 @@ export default function OrgSettings() {
         setLoaded(true);
       })
       .catch((err) => setError(errorMessage(err)));
+    getOrgUsage()
+      .then(setUsage)
+      .catch(() => {}); // tracker is best-effort; don't block settings on it
   }, []);
 
   async function onSubmit(e: React.FormEvent) {
@@ -64,6 +70,9 @@ export default function OrgSettings() {
         name and Games-of-Chance ID are printed on your tickets.
         {!owner && " Only owners can edit these."}
       </p>
+
+      {usage && <PlanUsageCard usage={usage} />}
+
       <form onSubmit={onSubmit} className="space-y-4 rounded-xl bg-white p-6 shadow">
         <div>
           <label htmlFor="org-name" className="block text-sm font-medium text-gray-700">

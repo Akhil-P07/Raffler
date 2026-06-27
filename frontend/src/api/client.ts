@@ -8,6 +8,7 @@ import type {
   Me,
   OrgMember,
   OrgSummary,
+  PlanUsage,
   Raffle,
   RaffleDetail,
   RaffleInput,
@@ -100,6 +101,11 @@ export async function updateOrg(body: {
   goc_id?: string | null;
 }): Promise<OrgSummary> {
   return (await authed.patch<OrgSummary>("/org", body)).data;
+}
+
+/** Current plan usage vs. limits, for the settings tracker. */
+export async function getOrgUsage(): Promise<PlanUsage> {
+  return (await authed.get<PlanUsage>("/org/usage")).data;
 }
 
 /** Switch the session to another org the user belongs to; stores the new token. */

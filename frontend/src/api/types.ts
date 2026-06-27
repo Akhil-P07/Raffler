@@ -35,6 +35,14 @@ export interface Me {
   orgs: OrgMembershipSummary[];
 }
 
+export interface PlanUsage {
+  plan: string;
+  lifetime_raffles_used: number;
+  // null means unlimited (the Club plan).
+  lifetime_raffles_limit: number | null;
+  tickets_per_raffle_limit: number | null;
+}
+
 export interface OrgMember {
   email: string;
   status: string; // 'owner' | 'member' | 'invited'

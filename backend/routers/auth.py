@@ -24,7 +24,7 @@ from fastapi import (
 )
 from fastapi.responses import RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from config import settings
@@ -33,10 +33,11 @@ from database import (
     OrgInvite,
     Organization,
     PremiumEmail,
+    Raffle,
     User,
     get_db,
 )
-from middleware.ownership import get_session, require_owner
+from middleware.ownership import get_session, require_org, require_owner
 from middleware.rate_limit import LOGIN_LIMIT, limiter
 from schemas import (
     AcceptInviteRequest,
@@ -52,6 +53,7 @@ from schemas import (
     OrgMemberRequest,
     OrgMemberResponse,
     OrgSummary,
+    PlanUsageResponse,
     PremiumEmailRequest,
     PremiumEmailResponse,
     ResetPasswordRequest,
@@ -74,6 +76,7 @@ from security import (
     verify_password,
 )
 from services.email import send_invite_email, send_password_reset_email
+from services.limits import PLAN_LIMITS
 
 router = APIRouter(tags=["auth"])
 
@@ -459,6 +462,28 @@ def me(
         role=membership.role,
         org=OrgSummary.model_validate(org),
         orgs=_org_summaries(db, user.id),
+    )
+
+
+@router.get("/org/usage", response_model=PlanUsageResponse)
+def org_usage(
+    org: Organization = Depends(require_org), db: Session = Depends(get_db)
+) -> PlanUsageResponse:
+    """Current plan usage for the settings tracker. The raffle count is the
+    lifetime total (all raffles ever created, including soft-deleted and drawn),
+    matching how the free raffle cap is enforced."""
+    limits = PLAN_LIMITS.get(org.plan, PLAN_LIMITS["free"])
+    used = (
+        db.scalar(
+            select(func.count()).select_from(Raffle).where(Raffle.org_id == org.id)
+        )
+        or 0
+    )
+    return PlanUsageResponse(
+        plan=org.plan,
+        lifetime_raffles_used=used,
+        lifetime_raffles_limit=limits["lifetime_raffles"],
+        tickets_per_raffle_limit=limits["tickets_per_raffle"],
     )
 
 

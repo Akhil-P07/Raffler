@@ -2,7 +2,7 @@
 
 | Plan | Raffles (lifetime) | Tickets per raffle |
 |------|--------------------|--------------------|
-| Free | 5                  | 50                 |
+| Free | 5                  | 20                 |
 | Club | unlimited          | unlimited          |
 
 The free raffle cap is a LIFETIME total: every raffle the org has ever created
@@ -18,7 +18,7 @@ from database import Organization, Raffle, Ticket
 
 # None means "unlimited".
 PLAN_LIMITS: dict[str, dict[str, int | None]] = {
-    "free": {"lifetime_raffles": 5, "tickets_per_raffle": 50},
+    "free": {"lifetime_raffles": 5, "tickets_per_raffle": 20},
     "club": {"lifetime_raffles": None, "tickets_per_raffle": None},
 }
 

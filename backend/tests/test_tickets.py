@@ -97,7 +97,7 @@ class TestGenerateTickets:
     def test_second_batch_continues_numbering(self, client, free_org):
         raffle_id = create_raffle(client, free_org["headers"])
         generate_tickets(client, free_org["headers"], raffle_id, count=3)
-        # Free plan allows 50; generate 3 more.
+        # Free plan allows 20; generate 3 more.
         body = generate_tickets(client, free_org["headers"], raffle_id, count=3)
         numbers = [t["ticket_number"] for t in body["tickets"]]
         assert numbers == [4, 5, 6]
