@@ -564,11 +564,10 @@ def single_ticket_full_png(number: int, token: str, info: TicketSheetInfo) -> by
 
 def single_ticket_pdf(number: int, token: str, info: TicketSheetInfo) -> bytes:
     """The buyer's emailed ticket as a single-page PDF: a portrait 10:11 card
-    (logo + raffle details + registration QR), not the wide seller strip used
-    for printing."""
-    logos = _decode_logos(info.logos, target_h=48, flatten=False)
+    (raffle details + registration QR), not the wide seller strip used for
+    printing. No logos on this copy."""
     buf = io.BytesIO()
-    render_ticket_card(number, token, info, logos).save(
+    render_ticket_card(number, token, info, []).save(
         buf, format="PDF", resolution=150.0
     )
     return buf.getvalue()
